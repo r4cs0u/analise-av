@@ -107,7 +107,6 @@
     <div class="brand">
       <div class="brand-inner">
         <div class="brand-icon" aria-label="Jamal logo">
-          <!-- Waveform icon -->
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="2 12 5 12"/><polyline points="5 6 5 18"/><polyline points="8 12 11 12"/><polyline points="11 9 11 15"/><polyline points="14 12 17 12"/><polyline points="17 4 17 20"/><polyline points="20 12 22 12"/>
           </svg>
@@ -131,7 +130,6 @@
         <label class="btn btn-secondary" for="fileInput" style="display:grid;place-items:center">Arquivo</label>
       </div>
       <input id="fileInput" type="file" accept="video/*,.m3u8,.mp4,.m4v" hidden/>
-      <!-- HLS quality selector (aparece após manifesto) -->
       <div class="hls-quality" id="hlsQualityWrap">
         <div class="field"><label>Rendição HLS (qualidade)</label>
           <select id="hlsQualitySelect"></select>
@@ -272,32 +270,45 @@
 </div>
 
 <script id="worker-src" type="text/plain">
-// ── Web Worker: processamento pesado de pixels ────────────────────────
+// ── Web Worker v1.3: TypedArrays corretos + vsStd passado pelo main ──
 self.onmessage = function(e) {
-  const { buf, fw, fh, step } = e.data;
+  const { buf, fw, fh, step, vsStd } = e.data;
   const data = new Uint8ClampedArray(buf);
+  const total = Math.ceil(fh / step) * Math.ceil(fw / step);
 
-  // Waveform: array de pares [plotX, plotY]
-  const wfPoints = [];
+  // Waveform: Float32Array pré-alocado (2 floats por ponto: x, luma)
+  const wfPoints = new Float32Array(total * 2);
+  let wi = 0;
   for (let py = 0; py < fh; py += step) {
     for (let px = 0; px < fw; px += step) {
       const idx = (py * fw + px) * 4;
       const r = data[idx], g = data[idx+1], b = data[idx+2];
       const luma = 0.2126*r + 0.7152*g + 0.0722*b;
-      wfPoints.push(px / fw, luma / 255);
+      wfPoints[wi++] = px / fw;
+      wfPoints[wi++] = luma / 255;
     }
   }
 
-  // Vectorscope BT.709: Cb, Cr normalizados [0,1]
-  const vsPoints = [];
+  // Vectorscope: coeficientes pelo padrão recebido
   const vstep = step * 2;
+  const vstotal = Math.ceil(fh / vstep) * Math.ceil(fw / vstep);
+  const vsPoints = new Float32Array(vstotal * 2);
+  let vi = 0;
   for (let py = 0; py < fh; py += vstep) {
     for (let px = 0; px < fw; px += vstep) {
       const idx = (py * fw + px) * 4;
       const r = data[idx], g = data[idx+1], b = data[idx+2];
-      const cb = 128 + (-0.1873*r - 0.3127*g + 0.5*b);
-      const cr = 128 + (0.5*r - 0.4187*g - 0.0813*b);
-      vsPoints.push((cb - 128) / 128, (cr - 128) / 128);
+      let cb, cr;
+      if (vsStd === 'bt2020') {
+        cb = -0.1646*r - 0.3354*g + 0.5*b;
+        cr =  0.5*r   - 0.4598*g - 0.0402*b;
+      } else {
+        // BT.709 (default)
+        cb = -0.1873*r - 0.3127*g + 0.5*b;
+        cr =  0.5*r   - 0.4187*g - 0.0813*b;
+      }
+      vsPoints[vi++] = cb / 128;
+      vsPoints[vi++] = cr / 128;
     }
   }
 
@@ -314,16 +325,28 @@ self.onmessage = function(e) {
     }
   }
 
-  self.postMessage({ wfPoints, vsPoints, histR, histG, histB },
-    [wfPoints.buffer, vsPoints.buffer, histR.buffer, histG.buffer, histB.buffer]);
+  // Transfere apenas o trecho preenchido (slice cria novo buffer)
+  self.postMessage(
+    { wfPoints: wfPoints.buffer, vsPoints: vsPoints.buffer,
+      histR: histR.buffer, histG: histG.buffer, histB: histB.buffer,
+      wfLen: wi, vsLen: vi },
+    [wfPoints.buffer, vsPoints.buffer, histR.buffer, histG.buffer, histB.buffer]
+  );
 };
 </script>
 
 <script>
 (() => {
-  // ── Config de performance: qualidade 1-5 → divisor, densidade 1-5 → step ──
-  const Q_DIV  = [8, 4, 2, 1.5, 1];   // quality 1..5 → offscreen divisor
-  const D_STEP = [8, 4, 2, 1, 1];     // density 1..5 → pixel step no worker
+  const VERSION = '1.3';
+  console.log(
+    `%c Jamal A/V %c v${VERSION} `,
+    'background:#49b6c1;color:#101214;font-weight:900;padding:2px 0;border-radius:3px 0 0 3px',
+    'background:#1a3438;color:#49b6c1;font-weight:700;padding:2px 4px;border-radius:0 3px 3px 0'
+  );
+
+  // ── Config de performance ──────────────────────────────────────────────────
+  const Q_DIV  = [8, 4, 2, 1.5, 1];
+  const D_STEP = [8, 4, 2, 1, 1];
 
   const state = {
     hls: null,
@@ -334,19 +357,17 @@ self.onmessage = function(e) {
     activeSource: null,
     loudnessHistory: [], lufsShortBuf: [],
     worker: null, workerBusy: false,
-    pendingPixels: null,
     quality: 3, density: 3,
     vsStd: 'bt709',
     modules: {
       waveform: true, vector: true, histogram: true,
       spectrum: true, phase: true, loudness: true
     },
-    // resultados do worker
     wfPoints: null, vsPoints: null,
     histR: null, histG: null, histB: null,
   };
 
-  // ── DOM ──────────────────────────────────────────────────────────────────
+  // ── DOM ────────────────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
   const el = {
     video: $('video'), streamUrl: $('streamUrl'), sourceType: $('sourceType'),
@@ -375,36 +396,37 @@ self.onmessage = function(e) {
   const offscreen = document.createElement('canvas');
   const offctx = offscreen.getContext('2d', { willReadFrequently: true });
 
-  // ── Web Worker ────────────────────────────────────────────────────────────
+  // ── Web Worker ─────────────────────────────────────────────────────────────
   function initWorker() {
     const src = $('worker-src').textContent;
     const blob = new Blob([src], { type: 'application/javascript' });
     state.worker = new Worker(URL.createObjectURL(blob));
     state.worker.onmessage = onWorkerResult;
+    state.worker.onerror = (e) => {
+      console.error('[Jamal Worker] Erro:', e.message);
+      state.workerBusy = false;
+    };
   }
 
   function onWorkerResult(e) {
-    const { wfPoints, vsPoints, histR, histG, histB } = e.data;
-    state.wfPoints  = new Float64Array(wfPoints);
-    state.vsPoints  = new Float64Array(vsPoints);
-    state.histR = new Uint32Array(histR);
-    state.histG = new Uint32Array(histG);
-    state.histB = new Uint32Array(histB);
+    // FIX: recebe ArrayBuffers transferidos, reconstrói TypedArrays diretamente
+    const { wfPoints, vsPoints, histR, histG, histB, wfLen, vsLen } = e.data;
+    state.wfPoints = new Float32Array(wfPoints).subarray(0, wfLen);
+    state.vsPoints = new Float32Array(vsPoints).subarray(0, vsLen);
+    state.histR    = new Uint32Array(histR);
+    state.histG    = new Uint32Array(histG);
+    state.histB    = new Uint32Array(histB);
     state.workerBusy = false;
-    // desenha imediatamente ao receber
     const dpr = window.devicePixelRatio || 1;
-    if (state.modules.waveform) {
+    if (state.modules.waveform)
       drawWaveform(state.wfPoints, el.waveformCanvas.width/dpr, el.waveformCanvas.height/dpr);
-    }
-    if (state.modules.vector) {
+    if (state.modules.vector)
       drawVectorscope(state.vsPoints, el.vectorscopeCanvas.width/dpr, el.vectorscopeCanvas.height/dpr);
-    }
-    if (state.modules.histogram) {
+    if (state.modules.histogram)
       drawHistogram(state.histR, state.histG, state.histB, el.histogramCanvas.width/dpr, el.histogramCanvas.height/dpr);
-    }
   }
 
-  // ── HiDPI ─────────────────────────────────────────────────────────────────
+  // ── HiDPI ──────────────────────────────────────────────────────────────────
   const CANVAS_HEIGHTS = {
     waveformCanvas: 220, vectorscopeCanvas: 220, histogramCanvas: 220,
     audioCanvas: 180, phaseCanvas: 180, loudnessCanvas: 84
@@ -427,15 +449,15 @@ self.onmessage = function(e) {
   function cw(c) { return c.width / (window.devicePixelRatio||1); }
   function ch(c) { return c.height / (window.devicePixelRatio||1); }
 
-  // ── Constantes visuais ────────────────────────────────────────────────────
-  const BG   = '#090b0d';
-  const LC   = 'rgba(153,163,173,.8)';
-  const GC   = 'rgba(153,163,173,.14)';
-  const GC2  = 'rgba(153,163,173,.28)';
+  // ── Constantes visuais ─────────────────────────────────────────────────────
+  const BG  = '#090b0d';
+  const LC  = 'rgba(153,163,173,.8)';
+  const GC  = 'rgba(153,163,173,.14)';
+  const GC2 = 'rgba(153,163,173,.28)';
   function fillBg(ctx,w,h){ ctx.fillStyle=BG; ctx.fillRect(0,0,w,h); }
   function font(ctx,sz){ ctx.font = `500 ${sz}px Satoshi,system-ui`; }
 
-  // ── WAVEFORM ──────────────────────────────────────────────────────────────
+  // ── WAVEFORM ───────────────────────────────────────────────────────────────
   function drawWaveformGrid(ctx, w, h) {
     const levels = [255,192,128,64,0];
     font(ctx,10); ctx.textBaseline='middle';
@@ -466,22 +488,16 @@ self.onmessage = function(e) {
     }
   }
 
-  // ── VECTORSCOPE ───────────────────────────────────────────────────────────
-  // Marcadores por padrão
+  // ── VECTORSCOPE ────────────────────────────────────────────────────────────
   const VS_COLORS = [
     {label:'R',r:255,g:0,b:0},{label:'G',r:0,g:255,b:0},{label:'B',r:0,g:0,b:255},
     {label:'Cy',r:0,g:255,b:255},{label:'Mg',r:255,g:0,b:255},{label:'Ye',r:255,g:255,b:0}
   ];
   function rgbToVS(r,g,b,std){
     if (std==='bt2020') {
-      const cb = 128+(-0.1646*r-0.3354*g+0.5*b);
-      const cr = 128+(0.5*r-0.4598*g-0.0402*b);
-      return {cb,cr};
+      return { cb: -0.1646*r-0.3354*g+0.5*b, cr: 0.5*r-0.4598*g-0.0402*b };
     }
-    // BT.709 (default)
-    const cb = 128+(-0.1873*r-0.3127*g+0.5*b);
-    const cr = 128+(0.5*r-0.4187*g-0.0813*b);
-    return {cb,cr};
+    return { cb: -0.1873*r-0.3127*g+0.5*b, cr: 0.5*r-0.4187*g-0.0813*b };
   }
 
   function drawVectorscopeBg(ctx, cx, cy, radius) {
@@ -502,15 +518,13 @@ self.onmessage = function(e) {
     ctx.fillText('Cb→', cx+radius+18, cy+4);
     ctx.textAlign='right'; ctx.textBaseline='bottom';
     ctx.fillText('Cr↑', cx-4, cy-radius-2);
-    // badge padrão
     font(ctx,9); ctx.fillStyle='rgba(73,182,193,.8)';
     ctx.textAlign='left'; ctx.textBaseline='top';
     ctx.fillText(state.vsStd.toUpperCase(), 4, 4);
-    // marcadores
     VS_COLORS.forEach(({label,r,g,b})=>{
       const {cb,cr}=rgbToVS(r,g,b,state.vsStd);
-      const tx=cx+(cb-128)*(radius/128);
-      const ty=cy-(cr-128)*(radius/128);
+      const tx=cx+(cb/128)*radius;
+      const ty=cy-(cr/128)*radius;
       ctx.beginPath(); ctx.arc(tx,ty,4.5,0,Math.PI*2);
       ctx.strokeStyle=`rgb(${r},${g},${b})`; ctx.lineWidth=2; ctx.stroke();
       font(ctx,9); ctx.fillStyle=LC; ctx.textAlign='center'; ctx.textBaseline='bottom';
@@ -522,7 +536,6 @@ self.onmessage = function(e) {
     const ctx = getCtx(el.vectorscopeCanvas);
     const cx=w/2, cy=h/2;
     const radius = Math.min(cx,cy)*.82;
-    // fade sutil para persistência
     ctx.fillStyle='rgba(9,11,13,.15)';
     ctx.fillRect(0,0,w,h);
     drawVectorscopeBg(ctx,cx,cy,radius);
@@ -535,13 +548,12 @@ self.onmessage = function(e) {
     }
   }
 
-  // ── HISTOGRAMA ────────────────────────────────────────────────────────────
+  // ── HISTOGRAMA ─────────────────────────────────────────────────────────────
   function drawHistogram(histR,histG,histB,w,h){
     const ctx=getCtx(el.histogramCanvas);
     fillBg(ctx,w,h);
     let mx=1;
     for(let i=0;i<256;i++) mx=Math.max(mx,histR[i],histG[i],histB[i]);
-    // grid
     font(ctx,10);
     for(let i=0;i<=4;i++){
       const y=(h/4)*i;
@@ -566,7 +578,7 @@ self.onmessage = function(e) {
     }
   }
 
-  // ── AUDIO SPECTRUM ────────────────────────────────────────────────────────
+  // ── AUDIO SPECTRUM ─────────────────────────────────────────────────────────
   function renderAudioSpectrum(){
     if(!state.modules.spectrum||!state.analyserL)return;
     const ctx=getCtx(el.audioCanvas);
@@ -601,7 +613,7 @@ self.onmessage = function(e) {
     }
   }
 
-  // ── PHASE / GONIÔMETRO ───────────────────────────────────────────────────
+  // ── PHASE / GONIÔMETRO ─────────────────────────────────────────────────────
   function renderPhase(){
     if(!state.modules.phase||!state.analyserL||!state.analyserR)return;
     const ctx=getCtx(el.phaseCanvas);
@@ -631,7 +643,7 @@ self.onmessage = function(e) {
     }
   }
 
-  // ── LOUDNESS ──────────────────────────────────────────────────────────────
+  // ── LOUDNESS ───────────────────────────────────────────────────────────────
   function renderLoudness(){
     if(!state.modules.loudness||!state.analyserL)return;
     const ctx=getCtx(el.loudnessCanvas);
@@ -677,11 +689,10 @@ self.onmessage = function(e) {
     ctx.fillStyle=bc2;      ctx.fillRect(w-14,h-bH,10,2);
   }
 
-  // ── Loop principal ────────────────────────────────────────────────────────
+  // ── Loop principal ─────────────────────────────────────────────────────────
   function analysisLoop(ts) {
     if (!el.video.videoWidth) { state.rafId=requestAnimationFrame(analysisLoop); return; }
 
-    // FPS
     state.frameCount++;
     if (!state.lastFrameAt) state.lastFrameAt=ts;
     const delta=ts-state.lastFrameAt;
@@ -695,7 +706,6 @@ self.onmessage = function(e) {
     el.metricResolution.textContent=`${el.video.videoWidth}×${el.video.videoHeight}`;
     el.metaRes.textContent=`${el.video.videoWidth}×${el.video.videoHeight}`;
 
-    // Envia para worker somente se ele não estiver ocupado
     const hasVideo = state.modules.waveform||state.modules.vector||state.modules.histogram;
     if (hasVideo && !state.workerBusy) {
       const div = Q_DIV[state.quality-1];
@@ -706,16 +716,18 @@ self.onmessage = function(e) {
       try {
         const imgData = offctx.getImageData(0,0,fw,fh);
         state.workerBusy=true;
+        // FIX: passa vsStd ao worker para calcular coeficientes corretos
         state.worker.postMessage({
           buf: imgData.data.buffer, fw, fh,
-          step: D_STEP[state.density-1]
+          step: D_STEP[state.density-1],
+          vsStd: state.vsStd
         }, [imgData.data.buffer]);
       } catch(e) {
         el.corsState.textContent='Bloqueado'; el.corsDot.className='dot err';
+        state.workerBusy=false;
       }
     }
 
-    // Áudio: sempre no RAF (leve)
     renderAudioSpectrum();
     renderPhase();
     renderLoudness();
@@ -723,7 +735,7 @@ self.onmessage = function(e) {
     state.rafId=requestAnimationFrame(analysisLoop);
   }
 
-  // ── Áudio graph ───────────────────────────────────────────────────────────
+  // ── Áudio graph ────────────────────────────────────────────────────────────
   async function ensureAudioGraph() {
     if (state.audioContext) return;
     const AC=window.AudioContext||window.webkitAudioContext;
@@ -746,7 +758,7 @@ self.onmessage = function(e) {
     el.metaChans.textContent='Estéreo';
   }
 
-  // ── Metadados HLS ─────────────────────────────────────────────────────────
+  // ── Metadados HLS ──────────────────────────────────────────────────────────
   function updateHlsMetadata() {
     if (!state.hls) return;
     const lvl=state.hls.currentLevel>=0?state.hls.levels[state.hls.currentLevel]:null;
@@ -784,7 +796,7 @@ self.onmessage = function(e) {
     if(state.audioContext) el.metaSr.textContent=state.audioContext.sampleRate+' Hz';
   }
 
-  // ── Playback ──────────────────────────────────────────────────────────────
+  // ── Playback ───────────────────────────────────────────────────────────────
   async function startPlayback() {
     try {
       await ensureAudioGraph();
@@ -803,15 +815,13 @@ self.onmessage = function(e) {
     }
   }
 
-  // ── HLS levels selector ───────────────────────────────────────────────────
+  // ── HLS levels selector ────────────────────────────────────────────────────
   function populateHlsQuality(){
     if(!state.hls||!state.hls.levels.length)return;
     el.hlsQualitySelect.innerHTML='';
-    // Auto
     const auto=document.createElement('option');
     auto.value='-1'; auto.textContent='Auto (ABR)';
     el.hlsQualitySelect.appendChild(auto);
-    // Rendiçõões
     state.hls.levels.forEach((lvl,i)=>{
       const opt=document.createElement('option');
       opt.value=String(i);
@@ -828,7 +838,7 @@ self.onmessage = function(e) {
     });
   }
 
-  // ── Load URL ──────────────────────────────────────────────────────────────
+  // ── Load URL ───────────────────────────────────────────────────────────────
   function destroyHls(){ if(state.hls){state.hls.destroy();state.hls=null;} }
 
   function loadFromUrl(){
@@ -874,7 +884,7 @@ self.onmessage = function(e) {
     el.video.addEventListener('loadedmetadata',startPlayback,{once:true});
   }
 
-  // ── CORS check ────────────────────────────────────────────────────────────
+  // ── CORS check ─────────────────────────────────────────────────────────────
   function validateCanvasRead(){
     try{
       offscreen.width=16;offscreen.height=16;
@@ -886,7 +896,7 @@ self.onmessage = function(e) {
     }
   }
 
-  // ── Module toggles ────────────────────────────────────────────────────────
+  // ── Module toggles ─────────────────────────────────────────────────────────
   function initModuleToggles(){
     const map={
       'mod-waveform':'waveform','mod-vector':'vector','mod-histogram':'histogram',
@@ -906,7 +916,7 @@ self.onmessage = function(e) {
     });
   }
 
-  // ── Tabs ──────────────────────────────────────────────────────────────────
+  // ── Tabs ───────────────────────────────────────────────────────────────────
   function initTabs(){
     document.querySelectorAll('.tab-btn').forEach(btn=>{
       btn.addEventListener('click',()=>{
@@ -918,7 +928,7 @@ self.onmessage = function(e) {
     });
   }
 
-  // ── Sliders performance ───────────────────────────────────────────────────
+  // ── Sliders ────────────────────────────────────────────────────────────────
   function initSliders(){
     el.sliderQuality.addEventListener('input',()=>{
       state.quality=parseInt(el.sliderQuality.value);
@@ -930,7 +940,7 @@ self.onmessage = function(e) {
     });
   }
 
-  // ── Vectorscope std toggle ────────────────────────────────────────────────
+  // ── Vectorscope std toggle ─────────────────────────────────────────────────
   function initVsToggle(){
     el.vsStdBtn.addEventListener('click',()=>{
       state.vsStd=state.vsStd==='bt709'?'bt2020':'bt709';
@@ -938,7 +948,7 @@ self.onmessage = function(e) {
     });
   }
 
-  // ── Theme ─────────────────────────────────────────────────────────────────
+  // ── Theme ──────────────────────────────────────────────────────────────────
   function initTheme(){
     const btn=document.querySelector('[data-theme-toggle]');
     const html=document.documentElement;
@@ -950,7 +960,7 @@ self.onmessage = function(e) {
     });
   }
 
-  // ── Events ────────────────────────────────────────────────────────────────
+  // ── Events ─────────────────────────────────────────────────────────────────
   el.loadUrlBtn.addEventListener('click',loadFromUrl);
   el.streamUrl.addEventListener('keydown',e=>e.key==='Enter'&&loadFromUrl());
   el.fileInput.addEventListener('change',e=>loadFromFile(e.target.files?.[0]));
@@ -962,7 +972,7 @@ self.onmessage = function(e) {
     el.videoDot.className='dot err';
   });
 
-  // ── Boot ──────────────────────────────────────────────────────────────────
+  // ── Boot ───────────────────────────────────────────────────────────────────
   initTheme();
   initTabs();
   initModuleToggles();
