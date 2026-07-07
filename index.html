@@ -1,11 +1,308 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Jamal A/V</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
+  <style>
+    :root {
+      --font: 'Satoshi', system-ui, sans-serif;
+      --text-xs: .75rem; --text-sm: .8125rem; --text-base: .875rem; --text-lg: 1.0625rem;
+      --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;--space-5:1.25rem;
+      --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:16px;--radius-full:9999px;
+      --transition:120ms ease;
+      --shadow-sm:0 1px 3px rgba(0,0,0,.25);
+    }
+    [data-theme="dark"] {
+      --color-bg:#0d1014;--color-surface:#13171c;--color-surface-2:#1c2127;
+      --color-text:#d4dae2;--color-text-muted:#6b7685;--color-text-inverse:#0d1014;
+      --color-primary:#49b6c1;--color-primary-hover:#5dc8d4;--color-primary-highlight:rgba(73,182,193,.12);
+      --color-success:#77b255;--color-warning:#ffb454;--color-error:#ff6b81;
+    }
+    [data-theme="light"] {
+      --color-bg:#f4f6f8;--color-surface:#ffffff;--color-surface-2:#edf0f3;
+      --color-text:#1a1f26;--color-text-muted:#7a8694;--color-text-inverse:#ffffff;
+      --color-primary:#2a9aa5;--color-primary-hover:#22818b;--color-primary-highlight:rgba(42,154,165,.10);
+      --color-success:#4e8a2f;--color-warning:#c07a00;--color-error:#c8253c;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+    body{min-height:100dvh;font-family:var(--font);font-size:var(--text-base);color:var(--color-text);background:radial-gradient(circle at top,color-mix(in oklab,var(--color-primary) 10%,transparent),transparent 26%),var(--color-bg);line-height:1.6}
+    button,input,select{font:inherit;color:inherit}
+    button{cursor:pointer;border:none;background:none}
+    :focus-visible{outline:2px solid var(--color-primary);outline-offset:3px;border-radius:var(--radius-sm)}
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border-width:0}
+    .app{display:grid;grid-template-columns:290px 1fr;min-height:100dvh}
+    .sidebar{border-right:1px solid oklch(from var(--color-text) l c h/.1);background:color-mix(in oklab,var(--color-surface) 92%,black 8%);padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-4);overflow-y:auto}
+    .main{padding:var(--space-5);display:flex;flex-direction:column;gap:var(--space-5);overflow:auto;align-content:start}
+    .brand{display:flex;align-items:center;justify-content:space-between}
+    .brand-inner{display:flex;align-items:center;gap:var(--space-3)}
+    .brand-icon{width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,var(--color-primary-highlight),transparent);border:1px solid oklch(from var(--color-primary) l c h/.3);display:grid;place-items:center;flex-shrink:0;color:var(--color-primary)}
+    .brand-copy h1{font-size:var(--text-lg);font-weight:900;line-height:1.1}
+    .brand-copy p{font-size:var(--text-xs);color:var(--color-text-muted)}
+    .theme-btn{width:34px;height:34px;border-radius:var(--radius-full);border:1px solid oklch(from var(--color-text) l c h/.12);background:var(--color-surface-2);display:grid;place-items:center;flex-shrink:0}
+    .panel{background:var(--color-surface);border:1px solid oklch(from var(--color-text) l c h/.1);border-radius:var(--radius-xl);padding:var(--space-4);box-shadow:var(--shadow-sm)}
+    .panel-title{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--color-text-muted);margin-bottom:var(--space-3)}
+    .stack{display:flex;flex-direction:column;gap:var(--space-3)}
+    .field{display:flex;flex-direction:column;gap:var(--space-1)}
+    .field label{font-size:var(--text-xs);color:var(--color-text-muted)}
+    .field input,.field select{width:100%;padding:.65rem .875rem;border-radius:var(--radius-md);border:1px solid oklch(from var(--color-text) l c h/.12);background:var(--color-surface-2);font-size:var(--text-xs)}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)}
+    .btn{min-height:38px;padding:.6rem 1rem;border-radius:var(--radius-md);font-size:var(--text-xs);font-weight:700;border:1px solid transparent;transition:all var(--transition);white-space:nowrap}
+    .btn-primary{background:var(--color-primary);color:var(--color-text-inverse)}
+    .btn-primary:hover{background:var(--color-primary-hover)}
+    .btn-secondary{background:var(--color-surface-2);border-color:oklch(from var(--color-text) l c h/.12)}
+    .status-list{display:grid;gap:var(--space-2)}
+    .status-item{display:flex;align-items:center;justify-content:space-between;font-size:var(--text-xs)}
+    .dot{width:7px;height:7px;border-radius:var(--radius-full);background:var(--color-text-muted);flex-shrink:0}
+    .dot.ok{background:var(--color-success)}.dot.warn{background:var(--color-warning)}.dot.err{background:var(--color-error)}
+    .slider-row{display:flex;align-items:center;gap:var(--space-3);font-size:var(--text-xs)}
+    .slider-row label{min-width:64px;color:var(--color-text-muted)}
+    .slider-row input[type=range]{flex:1;accent-color:var(--color-primary);height:4px}
+    .slider-val{min-width:18px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+    .tab-bar{display:flex;gap:2px;background:var(--color-surface-2);border-radius:var(--radius-md);padding:2px;margin-bottom:var(--space-3)}
+    .tab-btn{flex:1;padding:.3rem .5rem;border-radius:calc(var(--radius-md) - 2px);font-size:var(--text-xs);font-weight:700;color:var(--color-text-muted);transition:all var(--transition);text-align:center}
+    .tab-btn.active{background:var(--color-primary);color:var(--color-text-inverse)}
+    .tab-pane{display:none}
+    .tab-pane.active{display:flex;flex-direction:column;gap:var(--space-2)}
+    .mod-toggle{display:flex;align-items:center;justify-content:space-between;padding:.35rem 0;border-bottom:1px solid oklch(from var(--color-text) l c h/.06);font-size:var(--text-xs)}
+    .mod-toggle:last-child{border-bottom:none}
+    .toggle-switch{position:relative;width:32px;height:18px;flex-shrink:0}
+    .toggle-switch input{opacity:0;width:0;height:0;position:absolute}
+    .toggle-track{position:absolute;inset:0;border-radius:var(--radius-full);background:var(--color-surface-2);border:1px solid oklch(from var(--color-text) l c h/.15);transition:all var(--transition);cursor:pointer}
+    .toggle-track::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:var(--radius-full);background:var(--color-text-muted);transition:all var(--transition)}
+    .toggle-switch input:checked+.toggle-track{background:var(--color-primary);border-color:var(--color-primary)}
+    .toggle-switch input:checked+.toggle-track::after{transform:translateX(14px);background:#fff}
+    .meta-table{width:100%;border-collapse:collapse;font-size:var(--text-xs)}
+    .meta-table td{padding:.22rem 0;vertical-align:top}
+    .meta-table td:first-child{color:var(--color-text-muted);padding-right:.5rem}
+    .meta-table td:last-child{color:var(--color-text);font-weight:500;text-align:right;word-break:break-all}
+    .hls-quality{display:none}
+    .hls-quality.visible{display:flex;flex-direction:column;gap:var(--space-2)}
+    .preview-row{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);gap:var(--space-5);align-items:start}
+    .video-wrap{position:relative;border-radius:var(--radius-xl);overflow:hidden;background:#050607;border:1px solid oklch(from var(--color-text) l c h/.1)}
+    video{width:100%;display:block;max-height:210px;object-fit:contain;background:#000}
+    .overlay-badge{position:absolute;top:var(--space-3);left:var(--space-3);padding:.25rem .55rem;border-radius:var(--radius-full);font-size:var(--text-xs);font-weight:700;background:oklch(from var(--color-bg) l c h/.75);backdrop-filter:blur(12px)}
+    /* False color overlay */
+    #falseColorCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:0;transition:opacity .2s;object-fit:contain}
+    #falseColorCanvas.active{opacity:.82}
+    .metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)}
+    .metric{padding:var(--space-3);border-radius:var(--radius-lg);background:var(--color-surface);border:1px solid oklch(from var(--color-text) l c h/.08)}
+    .metric strong{display:block;font-size:var(--text-lg);font-variant-numeric:tabular-nums lining-nums;line-height:1.15}
+    .metric span{font-size:var(--text-xs);color:var(--color-text-muted)}
+    .scope-section{display:flex;flex-direction:column;gap:var(--space-4)}
+    .scope-section-title{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-muted);padding:0 var(--space-1)}
+    .scopes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-4)}
+    .scopes-row2{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--space-4)}
+    .scope-card{background:var(--color-surface);border:1px solid oklch(from var(--color-text) l c h/.1);border-radius:calc(var(--radius-xl) + 2px);padding:var(--space-3) var(--space-4);box-shadow:var(--shadow-sm)}
+    .scope-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-2);gap:var(--space-2);flex-wrap:wrap}
+    .scope-header h3{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--color-text-muted);white-space:nowrap}
+    .scope-canvas-wrap canvas{width:100%;height:auto;display:block;border-radius:var(--radius-lg);background:#090b0d}
+    .scope-card-hidden{display:none!important}
+    .loudness-card canvas{width:100%;height:auto;display:block;border-radius:var(--radius-lg);background:#090b0d}
+    .scope-btn-group{display:flex;gap:2px;background:var(--color-surface-2);border-radius:var(--radius-md);padding:2px;flex-shrink:0}
+    .scope-btn{padding:.18rem .45rem;border-radius:calc(var(--radius-md) - 2px);font-size:.65rem;font-weight:700;color:var(--color-text-muted);transition:all var(--transition);white-space:nowrap;min-height:0;border:none;background:none;cursor:pointer}
+    .scope-btn.active{background:var(--color-primary);color:var(--color-text-inverse)}
+    .profile-btn-group{display:flex;gap:2px;background:var(--color-surface-2);border-radius:var(--radius-md);padding:2px}
+    .profile-btn{flex:1;padding:.3rem .4rem;border-radius:calc(var(--radius-md) - 2px);font-size:.65rem;font-weight:700;color:var(--color-text-muted);transition:all var(--transition);white-space:nowrap;border:none;background:none;cursor:pointer;text-align:center}
+    .profile-btn.active{background:var(--color-primary);color:var(--color-text-inverse)}
+    @media(max-width:1200px){.scopes-grid{grid-template-columns:1fr 1fr}}
+    @media(max-width:1100px){.app{grid-template-columns:1fr}.sidebar{border-right:none;border-bottom:1px solid oklch(from var(--color-text) l c h/.1)}.preview-row{grid-template-columns:1fr}}
+    @media(max-width:720px){.main,.sidebar{padding:var(--space-4)}.scopes-grid,.scopes-row2,.metrics-grid{grid-template-columns:1fr}}
+  </style>
 </head>
 <body>
-  <script>console.log('placeholder')</script>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-inner">
+        <div class="brand-icon" aria-label="Jamal logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="2 12 5 12"/><polyline points="5 6 5 18"/><polyline points="8 12 11 12"/><polyline points="11 9 11 15"/><polyline points="14 12 17 12"/><polyline points="17 4 17 20"/><polyline points="20 12 22 12"/>
+          </svg>
+        </div>
+        <div class="brand-copy"><h1>Jamal</h1><p>Análise A/V</p></div>
+      </div>
+      <button class="theme-btn" data-theme-toggle aria-label="Alternar tema">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+
+    <!-- Fonte -->
+    <section class="panel stack">
+      <p class="panel-title">Fonte</p>
+      <div class="field"><label>Link de vídeo</label><input id="streamUrl" type="url" placeholder="https://exemplo.com/live.m3u8"/></div>
+      <div class="actions">
+        <button class="btn btn-primary" id="loadUrlBtn">Abrir link</button>
+        <label class="btn btn-secondary" for="fileInput" style="display:grid;place-items:center">Arquivo</label>
+      </div>
+      <input id="fileInput" type="file" accept="video/*,.m3u8,.mp4,.m4v" hidden/>
+      <div class="hls-quality" id="hlsQualityWrap">
+        <div class="field"><label>Rendição HLS</label>
+          <select id="hlsQualitySelect"></select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Perfil do sinal -->
+    <section class="panel stack">
+      <p class="panel-title">Perfil do sinal</p>
+      <div class="profile-btn-group" id="profileGroup">
+        <button class="profile-btn active" data-profile="sdr709">SDR 709</button>
+        <button class="profile-btn" data-profile="hlg2020">HLG 2020</button>
+        <button class="profile-btn" data-profile="pq2020">PQ 2020</button>
+      </div>
+      <p style="font-size:.65rem;color:var(--color-text-muted);line-height:1.5" id="profileDesc">HD SDR · Escala 0–100 nit · Gamut BT.709</p>
+    </section>
+
+    <!-- Estado -->
+    <section class="panel">
+      <p class="panel-title">Estado</p>
+      <div class="status-list">
+        <div class="status-item"><span>Player</span><strong id="playerState">Aguardando</strong></div>
+        <div class="status-item"><span>Vídeo</span><span style="display:flex;align-items:center;gap:.5rem"><i class="dot warn" id="videoDot"></i><strong id="videoState">Sem fonte</strong></span></div>
+        <div class="status-item"><span>Áudio</span><span style="display:flex;align-items:center;gap:.5rem"><i class="dot warn" id="audioDot"></i><strong id="audioState">Não iniciado</strong></span></div>
+        <div class="status-item"><span>CORS</span><span style="display:flex;align-items:center;gap:.5rem"><i class="dot warn" id="corsDot"></i><strong id="corsState">A validar</strong></span></div>
+      </div>
+    </section>
+
+    <!-- Performance -->
+    <section class="panel stack">
+      <p class="panel-title">Performance</p>
+      <div class="slider-row"><label>Qualidade</label><input type="range" id="sliderQuality" min="1" max="5" value="3"/><span class="slider-val" id="valQuality">3</span></div>
+      <div class="slider-row"><label>Densidade</label><input type="range" id="sliderDensity" min="1" max="5" value="3"/><span class="slider-val" id="valDensity">3</span></div>
+    </section>
+
+    <!-- Módulos -->
+    <section class="panel">
+      <p class="panel-title">Módulos</p>
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="video">Vídeo</button>
+        <button class="tab-btn" data-tab="audio">Áudio</button>
+      </div>
+      <div class="tab-pane active" id="tab-video">
+        <div class="mod-toggle"><span>Waveform</span><label class="toggle-switch"><input type="checkbox" id="mod-waveform" checked><span class="toggle-track"></span></label></div>
+        <div class="mod-toggle"><span>Vectorscope</span><label class="toggle-switch"><input type="checkbox" id="mod-vector" checked><span class="toggle-track"></span></label></div>
+        <div class="mod-toggle"><span>Histograma RGB</span><label class="toggle-switch"><input type="checkbox" id="mod-histogram" checked><span class="toggle-track"></span></label></div>
+        <div class="mod-toggle"><span>False Color</span><label class="toggle-switch"><input type="checkbox" id="mod-falsecolor"><span class="toggle-track"></span></label></div>
+      </div>
+      <div class="tab-pane" id="tab-audio">
+        <div class="mod-toggle"><span>Espectro</span><label class="toggle-switch"><input type="checkbox" id="mod-spectrum" checked><span class="toggle-track"></span></label></div>
+        <div class="mod-toggle"><span>Phase</span><label class="toggle-switch"><input type="checkbox" id="mod-phase" checked><span class="toggle-track"></span></label></div>
+        <div class="mod-toggle"><span>Loudness</span><label class="toggle-switch"><input type="checkbox" id="mod-loudness" checked><span class="toggle-track"></span></label></div>
+      </div>
+    </section>
+
+    <!-- Metadados -->
+    <section class="panel">
+      <p class="panel-title">Metadados do sinal</p>
+      <table class="meta-table">
+        <tr><td>Resolução atual</td><td id="metaRes">—</td></tr>
+        <tr><td>Resolução máxima</td><td id="metaResMax">—</td></tr>
+        <tr><td>FPS leitura</td><td id="metaFps">—</td></tr>
+        <tr><td>FPS do stream</td><td id="metaFpsStream">—</td></tr>
+        <tr><td>Codec vídeo</td><td id="metaVcodec">—</td></tr>
+        <tr><td>Codec áudio</td><td id="metaAcodec">—</td></tr>
+        <tr><td>Canais</td><td id="metaChans">—</td></tr>
+        <tr><td>Sample rate</td><td id="metaSr">—</td></tr>
+        <tr><td>Bitrate</td><td id="metaBitrate">—</td></tr>
+        <tr><td>Perfil</td><td id="metaGamma">—</td></tr>
+        <tr><td>Aspect ratio</td><td id="metaAR">—</td></tr>
+        <tr><td>Fonte</td><td id="metaSrc" style="font-size:.68rem">—</td></tr>
+      </table>
+    </section>
+  </aside>
+
+  <main class="main" id="conteudo">
+    <!-- Preview + métricas -->
+    <section class="preview-row">
+      <div class="panel" style="padding:var(--space-3)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-2)">
+          <p class="panel-title" style="margin:0">Preview</p>
+          <button class="btn btn-secondary" id="exportFrameBtn" style="min-height:28px;padding:.3rem .75rem;font-size:.65rem">⬇ Export frame</button>
+        </div>
+        <div class="video-wrap">
+          <span class="overlay-badge" id="sourceBadge">Sem sinal</span>
+          <video id="video" controls playsinline crossorigin="anonymous"></video>
+          <canvas id="falseColorCanvas"></canvas>
+        </div>
+      </div>
+      <div class="metrics-grid">
+        <div class="metric"><strong id="metricFps">--</strong><span>FPS leitura</span></div>
+        <div class="metric"><strong id="metricResolution">--</strong><span>Resolução</span></div>
+        <div class="metric"><strong id="metricLoudness">--</strong><span>dBFS</span></div>
+        <div class="metric"><strong id="metricLufs">--</strong><span>LUFS short-term</span></div>
+      </div>
+    </section>
+
+    <!-- Escopos de vídeo -->
+    <section class="scope-section" id="section-video">
+      <p class="scope-section-title">Vídeo</p>
+      <div class="scopes-grid">
+        <!-- Waveform -->
+        <article class="scope-card" id="card-waveform">
+          <div class="scope-header">
+            <h3>Waveform</h3>
+            <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+              <div class="scope-btn-group" id="wfModeGroup">
+                <button class="scope-btn active" data-wfmode="luma">Luma</button>
+                <button class="scope-btn" data-wfmode="rgb">RGB</button>
+                <button class="scope-btn" data-wfmode="ycbcr">YCbCr</button>
+              </div>
+              <div class="scope-btn-group">
+                <button class="scope-btn" id="wfNitsBtn">Nits</button>
+              </div>
+            </div>
+          </div>
+          <div class="scope-canvas-wrap"><canvas id="waveformCanvas"></canvas></div>
+        </article>
+        <!-- Vectorscope -->
+        <article class="scope-card" id="card-vector">
+          <div class="scope-header">
+            <h3>Vectorscope</h3>
+            <div class="scope-btn-group" id="vsStdGroup">
+              <button class="scope-btn active" data-vsstd="bt709">BT.709</button>
+              <button class="scope-btn" data-vsstd="bt2020">BT.2020</button>
+            </div>
+          </div>
+          <div class="scope-canvas-wrap"><canvas id="vectorscopeCanvas"></canvas></div>
+        </article>
+        <!-- Histograma -->
+        <article class="scope-card" id="card-histogram">
+          <div class="scope-header">
+            <h3>Histograma RGB</h3>
+            <div class="scope-btn-group" id="histRangeGroup">
+              <button class="scope-btn active" data-histrange="legal">Legal</button>
+              <button class="scope-btn" data-histrange="full">Full</button>
+            </div>
+          </div>
+          <div class="scope-canvas-wrap"><canvas id="histogramCanvas"></canvas></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Escopos de áudio -->
+    <section class="scope-section" id="section-audio">
+      <p class="scope-section-title">Áudio</p>
+      <div class="scopes-row2">
+        <article class="scope-card" id="card-spectrum">
+          <div class="scope-header"><h3>Espectro de áudio</h3></div>
+          <div class="scope-canvas-wrap"><canvas id="audioCanvas"></canvas></div>
+        </article>
+        <article class="scope-card" id="card-phase">
+          <div class="scope-header"><h3>Phase / Goniômetro</h3></div>
+          <div class="scope-canvas-wrap"><canvas id="phaseCanvas"></canvas></div>
+        </article>
+      </div>
+      <div class="scope-card loudness-card" id="card-loudness">
+        <div class="scope-header"><h3>Loudness LUFS / dBFS</h3></div>
+        <canvas id="loudnessCanvas"></canvas>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="app.js"></script>
 </body>
 </html>
