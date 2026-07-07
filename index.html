@@ -90,11 +90,16 @@
     .scopes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-4)}
     .scopes-row2{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--space-4)}
     .scope-card{background:var(--color-surface);border:1px solid oklch(from var(--color-text) l c h/.1);border-radius:calc(var(--radius-xl) + 2px);padding:var(--space-3) var(--space-4);box-shadow:var(--shadow-sm)}
-    .scope-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-2)}
-    .scope-header h3{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--color-text-muted)}
+    .scope-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-2);gap:var(--space-2);flex-wrap:wrap}
+    .scope-header h3{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--color-text-muted);white-space:nowrap}
     .scope-canvas-wrap canvas{width:100%;height:auto;display:block;border-radius:var(--radius-lg);background:#090b0d}
     .scope-card-hidden{display:none!important}
     .loudness-card canvas{width:100%;height:auto;display:block;border-radius:var(--radius-lg);background:#090b0d}
+    /* Scope button group */
+    .scope-btn-group{display:flex;gap:2px;background:var(--color-surface-2);border-radius:var(--radius-md);padding:2px;flex-shrink:0}
+    .scope-btn{padding:.18rem .45rem;border-radius:calc(var(--radius-md) - 2px);font-size:.65rem;font-weight:700;color:var(--color-text-muted);transition:all var(--transition);white-space:nowrap;min-height:0;border:none;background:none;cursor:pointer}
+    .scope-btn.active{background:var(--color-primary);color:var(--color-text-inverse)}
+    .scope-btn-sep{width:1px;background:oklch(from var(--color-text) l c h/.12);margin:2px 1px;flex-shrink:0}
     @media(max-width:1200px){.scopes-grid{grid-template-columns:1fr 1fr}}
     @media(max-width:1100px){.app{grid-template-columns:1fr}.sidebar{border-right:none;border-bottom:1px solid oklch(from var(--color-text) l c h/.1)}.preview-row{grid-template-columns:1fr}}
     @media(max-width:720px){.main,.sidebar{padding:var(--space-4)}.scopes-grid,.scopes-row2,.metrics-grid{grid-template-columns:1fr}}
@@ -228,19 +233,35 @@
     <section class="scope-section" id="section-video">
       <p class="scope-section-title">Vídeo</p>
       <div class="scopes-grid">
+        <!-- Waveform -->
         <article class="scope-card" id="card-waveform">
-          <div class="scope-header"><h3>Waveform Luma</h3></div>
+          <div class="scope-header">
+            <h3>Waveform</h3>
+            <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+              <div class="scope-btn-group" id="wfModeGroup">
+                <button class="scope-btn active" data-wfmode="luma">Luma</button>
+                <button class="scope-btn" data-wfmode="rgb">RGB</button>
+                <button class="scope-btn" data-wfmode="ycbcr">YCbCr</button>
+              </div>
+              <div class="scope-btn-group">
+                <button class="scope-btn" id="wfNitsBtn">Nits</button>
+              </div>
+            </div>
+          </div>
           <div class="scope-canvas-wrap"><canvas id="waveformCanvas"></canvas></div>
         </article>
+        <!-- Vectorscope -->
         <article class="scope-card" id="card-vector">
           <div class="scope-header">
             <h3>Vectorscope</h3>
-            <div style="display:flex;gap:4px">
-              <button class="btn btn-secondary" style="padding:.2rem .45rem;font-size:.65rem;min-height:0" id="vsStdBtn" data-std="bt709">BT.709</button>
+            <div class="scope-btn-group" id="vsStdGroup">
+              <button class="scope-btn active" data-vsstd="bt709">BT.709</button>
+              <button class="scope-btn" data-vsstd="bt2020">BT.2020</button>
             </div>
           </div>
           <div class="scope-canvas-wrap"><canvas id="vectorscopeCanvas"></canvas></div>
         </article>
+        <!-- Histograma -->
         <article class="scope-card" id="card-histogram">
           <div class="scope-header"><h3>Histograma RGB</h3></div>
           <div class="scope-canvas-wrap"><canvas id="histogramCanvas"></canvas></div>
@@ -270,26 +291,66 @@
 </div>
 
 <script id="worker-src" type="text/plain">
-// ── Web Worker v1.3: TypedArrays corretos + vsStd passado pelo main ──
+// ── Web Worker v1.4: multi-modo waveform + vsStd ──
 self.onmessage = function(e) {
-  const { buf, fw, fh, step, vsStd } = e.data;
+  const { buf, fw, fh, step, vsStd, wfMode } = e.data;
   const data = new Uint8ClampedArray(buf);
   const total = Math.ceil(fh / step) * Math.ceil(fw / step);
 
-  // Waveform: Float32Array pré-alocado (2 floats por ponto: x, luma)
-  const wfPoints = new Float32Array(total * 2);
+  // Waveform
+  // luma: 2 floats/ponto (x, luma)
+  // rgb:  4 floats/ponto (x, r, g, b)
+  // ycbcr: 4 floats/ponto (x, y, cb, cr)
+  const wfStride = (wfMode === 'luma') ? 2 : 4;
+  const wfPoints = new Float32Array(total * wfStride);
   let wi = 0;
   for (let py = 0; py < fh; py += step) {
     for (let px = 0; px < fw; px += step) {
       const idx = (py * fw + px) * 4;
       const r = data[idx], g = data[idx+1], b = data[idx+2];
-      const luma = 0.2126*r + 0.7152*g + 0.0722*b;
-      wfPoints[wi++] = px / fw;
-      wfPoints[wi++] = luma / 255;
+      const xn = px / fw;
+      if (wfMode === 'rgb') {
+        wfPoints[wi++] = xn; wfPoints[wi++] = r/255;
+        wfPoints[wi++] = xn; wfPoints[wi++] = g/255;
+        // blue stored as negative to distinguish in draw
+        wfPoints[wi++] = xn; wfPoints[wi++] = b/255;
+        // pack R,G,B in groups of 2 (xn, val) — reuse stride=4 => 2 points per pixel
+        // Actually pack as: [xn, r/255, xn, g/255] then separately [xn, b/255, xn, b/255]
+        // Simpler: stride=6 for rgb. Redefine below.
+      } else if (wfMode === 'ycbcr') {
+        const Y  =  0.2126*r + 0.7152*g + 0.0722*b;
+        const Cb = -0.1873*r - 0.3127*g + 0.5*b + 128;
+        const Cr =  0.5*r   - 0.4187*g - 0.0813*b + 128;
+        wfPoints[wi++] = xn; wfPoints[wi++] = Y/255;
+        wfPoints[wi++] = xn; wfPoints[wi++] = Cb/255;
+      } else {
+        // luma
+        const luma = 0.2126*r + 0.7152*g + 0.0722*b;
+        wfPoints[wi++] = xn;
+        wfPoints[wi++] = luma / 255;
+      }
     }
   }
 
-  // Vectorscope: coeficientes pelo padrão recebido
+  // RGB mode needs 6 floats/point — recalculate
+  let wfPointsRGB = null;
+  if (wfMode === 'rgb') {
+    wi = 0;
+    const rgbArr = new Float32Array(total * 6);
+    for (let py = 0; py < fh; py += step) {
+      for (let px = 0; px < fw; px += step) {
+        const idx = (py * fw + px) * 4;
+        const r = data[idx], g = data[idx+1], b = data[idx+2];
+        const xn = px / fw;
+        rgbArr[wi++]=xn; rgbArr[wi++]=r/255;
+        rgbArr[wi++]=xn; rgbArr[wi++]=g/255;
+        rgbArr[wi++]=xn; rgbArr[wi++]=b/255;
+      }
+    }
+    wfPointsRGB = rgbArr;
+  }
+
+  // Vectorscope
   const vstep = step * 2;
   const vstotal = Math.ceil(fh / vstep) * Math.ceil(fw / vstep);
   const vsPoints = new Float32Array(vstotal * 2);
@@ -303,7 +364,6 @@ self.onmessage = function(e) {
         cb = -0.1646*r - 0.3354*g + 0.5*b;
         cr =  0.5*r   - 0.4598*g - 0.0402*b;
       } else {
-        // BT.709 (default)
         cb = -0.1873*r - 0.3127*g + 0.5*b;
         cr =  0.5*r   - 0.4187*g - 0.0813*b;
       }
@@ -319,32 +379,37 @@ self.onmessage = function(e) {
   for (let py = 0; py < fh; py += step) {
     for (let px = 0; px < fw; px += step) {
       const idx = (py * fw + px) * 4;
-      histR[data[idx]]++;
-      histG[data[idx+1]]++;
-      histB[data[idx+2]]++;
+      histR[data[idx]]++; histG[data[idx+1]]++; histB[data[idx+2]]++;
     }
   }
 
-  // Transfere apenas o trecho preenchido (slice cria novo buffer)
-  self.postMessage(
-    { wfPoints: wfPoints.buffer, vsPoints: vsPoints.buffer,
-      histR: histR.buffer, histG: histG.buffer, histB: histB.buffer,
-      wfLen: wi, vsLen: vi },
-    [wfPoints.buffer, vsPoints.buffer, histR.buffer, histG.buffer, histB.buffer]
-  );
+  if (wfMode === 'rgb' && wfPointsRGB) {
+    self.postMessage(
+      { wfPoints: wfPointsRGB.buffer, vsPoints: vsPoints.buffer,
+        histR: histR.buffer, histG: histG.buffer, histB: histB.buffer,
+        wfLen: wi, vsLen: vi, wfMode },
+      [wfPointsRGB.buffer, vsPoints.buffer, histR.buffer, histG.buffer, histB.buffer]
+    );
+  } else {
+    self.postMessage(
+      { wfPoints: wfPoints.buffer, vsPoints: vsPoints.buffer,
+        histR: histR.buffer, histG: histG.buffer, histB: histB.buffer,
+        wfLen: wi, vsLen: vi, wfMode },
+      [wfPoints.buffer, vsPoints.buffer, histR.buffer, histG.buffer, histB.buffer]
+    );
+  }
 };
 </script>
 
 <script>
 (() => {
-  const VERSION = '1.3';
+  const VERSION = '1.4';
   console.log(
     `%c Jamal A/V %c v${VERSION} `,
     'background:#49b6c1;color:#101214;font-weight:900;padding:2px 0;border-radius:3px 0 0 3px',
     'background:#1a3438;color:#49b6c1;font-weight:700;padding:2px 4px;border-radius:0 3px 3px 0'
   );
 
-  // ── Config de performance ──────────────────────────────────────────────────
   const Q_DIV  = [8, 4, 2, 1.5, 1];
   const D_STEP = [8, 4, 2, 1, 1];
 
@@ -359,15 +424,17 @@ self.onmessage = function(e) {
     worker: null, workerBusy: false,
     quality: 3, density: 3,
     vsStd: 'bt709',
+    wfMode: 'luma',
+    wfNits: false,
     modules: {
       waveform: true, vector: true, histogram: true,
       spectrum: true, phase: true, loudness: true
     },
-    wfPoints: null, vsPoints: null,
+    wfPoints: null, wfModeResult: 'luma',
+    vsPoints: null,
     histR: null, histG: null, histB: null,
   };
 
-  // ── DOM ────────────────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
   const el = {
     video: $('video'), streamUrl: $('streamUrl'), sourceType: $('sourceType'),
@@ -384,7 +451,8 @@ self.onmessage = function(e) {
     hlsQualityWrap: $('hlsQualityWrap'), hlsQualitySelect: $('hlsQualitySelect'),
     sliderQuality: $('sliderQuality'), sliderDensity: $('sliderDensity'),
     valQuality: $('valQuality'), valDensity: $('valDensity'),
-    vsStdBtn: $('vsStdBtn'),
+    wfModeGroup: $('wfModeGroup'), wfNitsBtn: $('wfNitsBtn'),
+    vsStdGroup: $('vsStdGroup'),
     metaRes: $('metaRes'), metaResMax: $('metaResMax'), metaFps: $('metaFps'),
     metaFpsStream: $('metaFpsStream'), metaVcodec: $('metaVcodec'),
     metaAcodec: $('metaAcodec'), metaChans: $('metaChans'), metaSr: $('metaSr'),
@@ -392,7 +460,6 @@ self.onmessage = function(e) {
     metaAR: $('metaAR'), metaSrc: $('metaSrc'),
   };
 
-  // Offscreen
   const offscreen = document.createElement('canvas');
   const offctx = offscreen.getContext('2d', { willReadFrequently: true });
 
@@ -409,9 +476,9 @@ self.onmessage = function(e) {
   }
 
   function onWorkerResult(e) {
-    // FIX: recebe ArrayBuffers transferidos, reconstrói TypedArrays diretamente
-    const { wfPoints, vsPoints, histR, histG, histB, wfLen, vsLen } = e.data;
+    const { wfPoints, vsPoints, histR, histG, histB, wfLen, vsLen, wfMode } = e.data;
     state.wfPoints = new Float32Array(wfPoints).subarray(0, wfLen);
+    state.wfModeResult = wfMode;
     state.vsPoints = new Float32Array(vsPoints).subarray(0, vsLen);
     state.histR    = new Uint32Array(histR);
     state.histG    = new Uint32Array(histG);
@@ -449,7 +516,6 @@ self.onmessage = function(e) {
   function cw(c) { return c.width / (window.devicePixelRatio||1); }
   function ch(c) { return c.height / (window.devicePixelRatio||1); }
 
-  // ── Constantes visuais ─────────────────────────────────────────────────────
   const BG  = '#090b0d';
   const LC  = 'rgba(153,163,173,.8)';
   const GC  = 'rgba(153,163,173,.14)';
@@ -459,15 +525,17 @@ self.onmessage = function(e) {
 
   // ── WAVEFORM ───────────────────────────────────────────────────────────────
   function drawWaveformGrid(ctx, w, h) {
-    const levels = [255,192,128,64,0];
+    const levels = state.wfNits ? [100,75,50,25,0] : [255,192,128,64,0];
+    const maxVal  = state.wfNits ? 100 : 255;
     font(ctx,10); ctx.textBaseline='middle';
     levels.forEach((lv, i) => {
-      const y = h - (lv/255)*h;
-      ctx.strokeStyle = (lv===0||lv===128||lv===255) ? GC2 : GC;
-      ctx.lineWidth   = (lv===0||lv===128||lv===255) ? 1 : .7;
+      const y = h - (lv/maxVal)*h;
+      ctx.strokeStyle = (lv===0||lv===maxVal/2||lv===maxVal) ? GC2 : GC;
+      ctx.lineWidth   = (lv===0||lv===maxVal/2||lv===maxVal) ? 1 : .7;
       ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
       ctx.fillStyle = LC; ctx.textAlign='left';
-      ctx.fillText(lv, 4, y+(i===0?7:i===levels.length-1?-4:0));
+      const label = state.wfNits ? lv+' nit' : String(lv);
+      ctx.fillText(label, 4, y+(i===0?7:i===levels.length-1?-4:0));
     });
     ctx.textBaseline='bottom'; ctx.textAlign='center'; ctx.fillStyle=LC;
     [0,25,50,75,100].forEach(p => {
@@ -475,17 +543,60 @@ self.onmessage = function(e) {
     });
   }
 
-  function drawWaveform(pts, w, h) {
-    const ctx = getCtx(el.waveformCanvas);
-    fillBg(ctx,w,h);
-    drawWaveformGrid(ctx,w,h);
-    if (!pts || pts.length < 2) return;
+  function drawWaveformLuma(ctx, pts, w, h) {
     ctx.fillStyle = 'rgba(73,182,193,.22)';
     for (let i=0; i<pts.length; i+=2) {
       const px = Math.round(pts[i] * (w-1));
       const py = Math.round((1-pts[i+1]) * (h-1));
       ctx.fillRect(px, py, 1, 1);
     }
+  }
+
+  function drawWaveformRGB(ctx, pts, w, h) {
+    // pts: [xn, r/255, xn, g/255, xn, b/255, ...]
+    const colors = ['rgba(255,80,100,.3)','rgba(80,200,80,.3)','rgba(80,140,255,.3)'];
+    for (let i=0; i<pts.length; i+=6) {
+      for (let c=0; c<3; c++) {
+        const xn  = pts[i + c*2];
+        const val = pts[i + c*2 + 1];
+        const px  = Math.round(xn * (w-1));
+        const py  = Math.round((1-val) * (h-1));
+        ctx.fillStyle = colors[c];
+        ctx.fillRect(px, py, 1, 1);
+      }
+    }
+  }
+
+  function drawWaveformYCbCr(ctx, pts, w, h) {
+    // pts: [xn, Y/255, xn, Cb/255, ...]  (2 points per sample)
+    const cY  = 'rgba(73,182,193,.28)';
+    const cCb = 'rgba(255,180,84,.28)';
+    for (let i=0; i<pts.length; i+=4) {
+      const xn = pts[i];
+      const yv = pts[i+1];
+      const xn2 = pts[i+2];
+      const cb  = pts[i+3];
+      ctx.fillStyle = cY;
+      ctx.fillRect(Math.round(xn*(w-1)), Math.round((1-yv)*(h-1)), 1, 1);
+      ctx.fillStyle = cCb;
+      ctx.fillRect(Math.round(xn2*(w-1)), Math.round((1-cb)*(h-1)), 1, 1);
+    }
+  }
+
+  function drawWaveform(pts, w, h) {
+    const ctx = getCtx(el.waveformCanvas);
+    fillBg(ctx,w,h);
+    drawWaveformGrid(ctx,w,h);
+    if (!pts || pts.length < 2) return;
+    const mode = state.wfModeResult || 'luma';
+    if (mode === 'rgb')       drawWaveformRGB(ctx, pts, w, h);
+    else if (mode === 'ycbcr') drawWaveformYCbCr(ctx, pts, w, h);
+    else                       drawWaveformLuma(ctx, pts, w, h);
+    // Mode label
+    font(ctx,9); ctx.fillStyle='rgba(73,182,193,.8)';
+    ctx.textAlign='right'; ctx.textBaseline='top';
+    const label = {luma:'Luma',rgb:'RGB Parade',ycbcr:'YCbCr'}[mode]||mode;
+    ctx.fillText((state.wfNits?'Nits · ':'')+label, w-4, 4);
   }
 
   // ── VECTORSCOPE ────────────────────────────────────────────────────────────
@@ -716,11 +827,11 @@ self.onmessage = function(e) {
       try {
         const imgData = offctx.getImageData(0,0,fw,fh);
         state.workerBusy=true;
-        // FIX: passa vsStd ao worker para calcular coeficientes corretos
         state.worker.postMessage({
           buf: imgData.data.buffer, fw, fh,
           step: D_STEP[state.density-1],
-          vsStd: state.vsStd
+          vsStd: state.vsStd,
+          wfMode: state.wfMode
         }, [imgData.data.buffer]);
       } catch(e) {
         el.corsState.textContent='Bloqueado'; el.corsDot.className='dot err';
@@ -940,11 +1051,28 @@ self.onmessage = function(e) {
     });
   }
 
-  // ── Vectorscope std toggle ─────────────────────────────────────────────────
-  function initVsToggle(){
-    el.vsStdBtn.addEventListener('click',()=>{
-      state.vsStd=state.vsStd==='bt709'?'bt2020':'bt709';
-      el.vsStdBtn.textContent=state.vsStd.toUpperCase();
+  // ── Scope button groups ────────────────────────────────────────────────────
+  function initScopeButtons(){
+    // Waveform mode
+    el.wfModeGroup.querySelectorAll('.scope-btn[data-wfmode]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        el.wfModeGroup.querySelectorAll('.scope-btn').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        state.wfMode = btn.dataset.wfmode;
+      });
+    });
+    // Waveform nits toggle
+    el.wfNitsBtn.addEventListener('click',()=>{
+      state.wfNits = !state.wfNits;
+      el.wfNitsBtn.classList.toggle('active', state.wfNits);
+    });
+    // Vectorscope std
+    el.vsStdGroup.querySelectorAll('.scope-btn[data-vsstd]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        el.vsStdGroup.querySelectorAll('.scope-btn').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        state.vsStd = btn.dataset.vsstd;
+      });
     });
   }
 
@@ -977,7 +1105,7 @@ self.onmessage = function(e) {
   initTabs();
   initModuleToggles();
   initSliders();
-  initVsToggle();
+  initScopeButtons();
   initWorker();
   requestAnimationFrame(()=>initCanvases());
   window.addEventListener('resize',()=>initCanvases());
