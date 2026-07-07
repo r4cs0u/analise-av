@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = '3.0';
+  const VERSION = '3.0.1';
   console.log(
     `%c Monitor A/V %c v${VERSION} `,
     'background:#49b6c1;color:#101214;font-weight:900;padding:2px 0;border-radius:3px 0 0 3px',
@@ -89,15 +89,17 @@
   }
 
   // ── HiDPI canvas ───────────────────────────────────────────────────────────
-  const CANVAS_IDS = [
-    'waveformCanvas','vectorscopeCanvas','histogramCanvas',
-    'cieCanvas','diamondCanvas','audioCanvas','phaseCanvas','loudnessCanvas',
-  ];
+  // Alturas fixas espelham o CSS do index.html — parseInt(style.height) não
+  // funciona quando a altura é definida por regra CSS (não inline).
+  const CANVAS_HEIGHTS = {
+    waveformCanvas:160, vectorscopeCanvas:160, histogramCanvas:160,
+    cieCanvas:160,      diamondCanvas:160,      audioCanvas:160,
+    phaseCanvas:220,    loudnessCanvas:220,
+  };
   function initCanvases() {
     const dpr = window.devicePixelRatio || 1;
-    CANVAS_IDS.forEach(id => {
+    Object.entries(CANVAS_HEIGHTS).forEach(([id, cssH]) => {
       const c = $(id); if (!c) return;
-      const cssH = parseInt(c.style.height) || c.offsetHeight || 160;
       const cssW = c.parentElement ? c.parentElement.offsetWidth || 400 : 400;
       c.width  = Math.round(cssW * dpr);
       c.height = Math.round(cssH * dpr);
@@ -309,7 +311,6 @@
     });
     ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fill();
-    // Pontos do sinal
     if (pts && pts.length >= 2) {
       ctx.fillStyle = 'rgba(255,200,80,.55)';
       for (let i = 0; i < pts.length; i += 2) {
@@ -318,7 +319,6 @@
           ctx.fillRect(Math.round(px), Math.round(py), 1, 1);
       }
     }
-    // Label: só informação do manifesto via metaGamma/metaVR
     font(ctx, 9); ctx.fillStyle = 'rgba(73,182,193,.8)';
     ctx.textAlign = 'right'; ctx.textBaseline = 'top';
     const csLabel = (el.metaVR && el.metaVR.textContent !== '\u2014')
@@ -535,10 +535,8 @@
       if (el.metaFpsStream) el.metaFpsStream.textContent = fr;
       const vc = maxLvl.attrs?.['CODECS'] ? maxLvl.attrs['CODECS'].split(',')[0] : 'H.264 (HLS)';
       if (el.metaVcodec)    el.metaVcodec.textContent    = vc;
-      // VIDEO-RANGE só do manifesto
       const vr = maxLvl.attrs?.['VIDEO-RANGE'] || 'SDR';
       if (el.metaVR)        el.metaVR.textContent        = vr;
-      // Color space: só VIDEO-RANGE do manifesto
       if (el.metaGamma)     el.metaGamma.textContent     = vr;
     }
     if (lvl?.bitrate && el.metaBitrate) el.metaBitrate.textContent = (lvl.bitrate/1000).toFixed(0) + ' kbps';
@@ -708,7 +706,7 @@
     };
     Object.entries(map).forEach(([id, key]) => {
       const inp = $(id); if (!inp) return;
-      const card = $('card-' + (key === 'vector' ? 'vector' : key));
+      const card = $('card-' + key);
       inp.addEventListener('change', () => {
         state.modules[key] = inp.checked;
         if (card) card.classList.toggle('scope-card-hidden', !inp.checked);
@@ -739,21 +737,18 @@
 
   // ── Scope buttons (dentro dos cards) ──────────────────────────────────────
   function initScopeButtons() {
-    // Waveform mode
     el.wfModeGroup && el.wfModeGroup.querySelectorAll('.scope-btn[data-wfmode]').forEach(btn => {
       btn.addEventListener('click', () => {
         el.wfModeGroup.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active'); state.wfMode = btn.dataset.wfmode;
       });
     });
-    // Vectorscope standard
     el.vsStdGroup && el.vsStdGroup.querySelectorAll('.scope-btn[data-vsstd]').forEach(btn => {
       btn.addEventListener('click', () => {
         el.vsStdGroup.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active'); state.vsStd = btn.dataset.vsstd;
       });
     });
-    // Histogram range
     el.histRangeGroup && el.histRangeGroup.querySelectorAll('.scope-btn[data-histrange]').forEach(btn => {
       btn.addEventListener('click', () => {
         el.histRangeGroup.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
