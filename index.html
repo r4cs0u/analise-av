@@ -700,29 +700,100 @@
       el.metricSource.textContent = state.activeSource ? '1' : '0';
     }
 
-    function drawVectorscopePlaceholder() {
-      const vect = el.vectorscopeCanvas.getContext('2d');
-      const cx = vect.canvas.width / 2;
-      const cy = vect.canvas.height / 2;
-      const r = Math.min(cx, cy) * 0.72;
+function drawVectorscopeBackground() {
+  const ctx = el.vectorscopeCanvas.getContext('2d');
+  const { width, height } = ctx.canvas;
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(cx, cy) * 0.78;
 
-      vect.fillStyle = '#090b0d';
-      vect.fillRect(0, 0, vect.canvas.width, vect.canvas.height);
-      vect.strokeStyle = 'rgba(153,163,173,.28)';
+  ctx.fillStyle = '#090b0d';
+  ctx.fillRect(0, 0, width, height);
 
-      for (let i = 1; i <= 4; i++) {
-        vect.beginPath();
-        vect.arc(cx, cy, r * (i / 4), 0, Math.PI * 2);
-        vect.stroke();
+  ctx.strokeStyle = 'rgba(153,163,173,.22)';
+  ctx.lineWidth = 1;
+
+  for (let i = 1; i <= 4; i++) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * (i / 4), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(cx, 0);
+  ctx.lineTo(cx, height);
+  ctx.moveTo(0, cy);
+  ctx.lineTo(width, cy);
+  ctx.stroke();
+
+  const targets = [
+    { label: 'R', angle: 0, color: 'rgba(255,107,129,.95)' },
+    { label: 'Mg', angle: 60, color: 'rgba(198,120,255,.95)' },
+    { label: 'B', angle: 120, color: 'rgba(90,160,255,.95)' },
+    { label: 'C', angle: 180, color: 'rgba(90,220,220,.95)' },
+    { label: 'G', angle: 240, color: 'rgba(119,178,85,.95)' },
+    { label: 'Y', angle: 300, color: 'rgba(255,196,84,.95)' }
+  ];
+
+  ctx.font = '12px Satoshi, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  targets.forEach((target) => {
+    const rad = (target.angle - 90) * Math.PI / 180;
+    const x = cx + Math.cos(rad) * radius;
+    const y = cy + Math.sin(rad) * radius;
+
+    ctx.beginPath();
+    ctx.strokeStyle = target.color;
+    ctx.arc(x, y, 10, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = target.color;
+    ctx.fillText(target.label, x, y - 18);
+  });
+}
+
+  function renderVectorscopeFromFrame() {
+    const ctx = el.vectorscopeCanvas.getContext('2d');
+    const frameWidth = offscreen.width;
+    const frameHeight = offscreen.height;
+    if (!frameWidth || !frameHeight) return;
+
+    const image = offctx.getImageData(0, 0, frameWidth, frameHeight);
+    const data = image.data;
+    const plotWidth = ctx.canvas.width;
+    const plotHeight = ctx.canvas.height;
+    const cx = plotWidth / 2;
+    const cy = plotHeight / 2;
+    const radius = Math.min(cx, cy) * 0.78;
+    const step = state.waveformStep * 2;
+
+    ctx.fillStyle = 'rgba(9,11,13,0.18)';
+    ctx.fillRect(0, 0, plotWidth, plotHeight);
+
+    ctx.fillStyle = 'rgba(73,182,193,0.20)';
+  
+    for (let y = 0; y < frameHeight; y += step) {
+      for (let x = 0; x < frameWidth; x += step) {
+        const index = (y * frameWidth + x) * 4;
+        const r = data[index];
+        const g = data[index + 1];
+        const b = data[index + 2];
+
+      const yy = (0.299 * r) + (0.587 * g) + (0.114 * b);
+      const cb = (b - yy) * 0.564;
+      const cr = (r - yy) * 0.713;
+
+        const px = Math.floor(cx + (cb / 128) * radius);
+        const py = Math.floor(cy - (cr / 128) * radius);
+
+        if (px >= 0 && px < plotWidth && py >= 0 && py < plotHeight) {
+          ctx.fillRect(px, py, 1, 1);
+        }
       }
-
-      vect.beginPath();
-      vect.moveTo(cx, 0);
-      vect.lineTo(cx, vect.canvas.height);
-      vect.moveTo(0, cy);
-      vect.lineTo(vect.canvas.width, cy);
-      vect.stroke();
     }
+  }
 
     function drawWaveformGrid() {
       const ctx = el.waveformCanvas.getContext('2d');
@@ -830,6 +901,7 @@
 
       try {
         renderWaveformFromFrame();
+        renderVectorscopeFromFrame();
       } catch (error) {
         el.corsState.textContent = 'Bloqueado';
         setDot(el.corsDot, 'err');
@@ -948,7 +1020,7 @@
     });
 
     drawWaveformGrid();
-    drawVectorscopePlaceholder();
+    drawVectorscopeBackground();
     setThemeToggle();
     resetMetrics();
   </script>
