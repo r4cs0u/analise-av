@@ -65,10 +65,11 @@
     .dot.ok{background:var(--color-success)}.dot.warn{background:var(--color-warning)}.dot.err{background:var(--color-error)}
 
     /* ── Sliders ── */
-    .slider-row{display:flex;align-items:center;gap:var(--space-3);font-size:var(--text-xs)}
-    .slider-row label{min-width:64px;color:var(--color-text-muted)}
-    .slider-row input[type=range]{flex:1;accent-color:var(--color-primary);height:4px}
-    .slider-val{min-width:18px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+    /* gap:0 entre o range e o valor p/ o número não sair da caixa */
+    .slider-row{display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-xs)}
+    .slider-row label{min-width:64px;color:var(--color-text-muted);flex-shrink:0}
+    .slider-row input[type=range]{flex:1;accent-color:var(--color-primary);height:4px;min-width:0}
+    .slider-val{width:18px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;flex-shrink:0}
 
     /* ── Tabs ── */
     .tab-bar{display:flex;gap:2px;background:var(--color-surface-2);border-radius:var(--radius-md);padding:2px;margin-bottom:var(--space-3)}
@@ -120,15 +121,15 @@
     .hdr-warning{display:none;align-items:center;gap:.3rem;font-size:.62rem;font-weight:700;color:var(--color-warning);background:oklch(from var(--color-warning) l c h/.1);border:1px solid oklch(from var(--color-warning) l c h/.3);border-radius:var(--radius-full);padding:.15rem .5rem;white-space:nowrap;flex-shrink:0}
     .hdr-warning.visible{display:flex}
 
-    /* canvas de altura fixa por módulo */
-    #waveformCanvas{height:160px}
-    #cieCanvas{height:160px}
-    #vectorscopeCanvas{height:160px}
-    #histogramCanvas{height:160px}
-    #diamondCanvas{height:160px}
-    #audioCanvas{height:160px}
-    #phaseCanvas{height:220px}
-    #loudnessCanvas{width:100%;height:220px;display:block;border-radius:var(--radius-lg);background:#090b0d}
+    /* canvas de altura fixa — todos 160px */
+    #waveformCanvas,
+    #cieCanvas,
+    #vectorscopeCanvas,
+    #histogramCanvas,
+    #diamondCanvas,
+    #audioCanvas,
+    #phaseCanvas,
+    #loudnessCanvas{height:160px;width:100%;display:block;border-radius:var(--radius-lg);background:#090b0d}
 
     /* ── Mini toggle groups dentro dos cards ── */
     .scope-btn-group{display:flex;gap:2px;background:var(--color-surface-2);border-radius:var(--radius-md);padding:2px;flex-shrink:0}
@@ -157,7 +158,7 @@
 <body>
 <div class="app">
 
-  <!-- ══ SIDEBAR ════════════════════════════════════════════════ -->
+  <!-- ══ SIDEBAR ════════════════════════════════════════════ -->
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-inner">
@@ -192,8 +193,16 @@
     <!-- Performance -->
     <section class="panel stack">
       <p class="panel-title">Performance</p>
-      <div class="slider-row"><label>Qualidade</label><input type="range" id="sliderQuality" min="1" max="5" value="1"/><span class="slider-val" id="valQuality">1</span></div>
-      <div class="slider-row"><label>Densidade</label><input type="range" id="sliderDensity" min="1" max="5" value="5"/><span class="slider-val" id="valDensity">5</span></div>
+      <div class="slider-row">
+        <label>Qualidade</label>
+        <input type="range" id="sliderQuality" min="1" max="5" value="1"/>
+        <span class="slider-val" id="valQuality">1</span>
+      </div>
+      <div class="slider-row">
+        <label>Densidade</label>
+        <input type="range" id="sliderDensity" min="1" max="5" value="5"/>
+        <span class="slider-val" id="valDensity">5</span>
+      </div>
     </section>
 
     <!-- Estado -->
@@ -229,7 +238,7 @@
     </section>
   </aside>
 
-  <!-- ══ MAIN ════════════════════════════════════════════════ -->
+  <!-- ══ MAIN ════════════════════════════════════════════ -->
   <main class="main" id="mainArea">
 
     <!-- Topbar mínima -->
@@ -248,22 +257,36 @@
           <video id="video" controls playsinline crossorigin="anonymous"></video>
         </div>
       </div>
-      <div class="panel">
+
+      <!-- Media Info -->
+      <div class="panel" style="overflow-y:auto">
         <p class="panel-title">Media Info</p>
         <div class="mediainfo-panel">
+
+          <!-- Colüna Esquerda: Vídeo -->
           <div class="mi-group">
             <p class="mi-group-title">Vídeo</p>
+            <div class="mi-row"><span>Codec</span><span id="metaVcodec">—</span></div>
+            <div class="mi-row"><span>Codec ID</span><span id="metaCodecId">—</span></div>
             <div class="mi-row"><span>Resolução</span><span id="metaRes">—</span></div>
-            <div class="mi-row"><span>Máximo</span><span id="metaResMax">—</span></div>
+            <div class="mi-row"><span>Máx stream</span><span id="metaResMax">—</span></div>
+            <div class="mi-row"><span>Largura</span><span id="metaWidth">—</span></div>
+            <div class="mi-row"><span>Altura</span><span id="metaHeight">—</span></div>
+            <div class="mi-row"><span>Aspect ratio</span><span id="metaAR">—</span></div>
             <div class="mi-row"><span>FPS leitura</span><span id="metaFps">—</span></div>
             <div class="mi-row"><span>FPS stream</span><span id="metaFpsStream">—</span></div>
-            <div class="mi-row"><span>Codec</span><span id="metaVcodec">—</span></div>
             <div class="mi-row"><span>Bitrate</span><span id="metaBitrate">—</span></div>
-            <div class="mi-row"><span>Aspect ratio</span><span id="metaAR">—</span></div>
+            <div class="mi-row"><span>Bit depth</span><span id="metaBitDepth">—</span></div>
+            <div class="mi-row"><span>Chroma</span><span id="metaChroma">—</span></div>
             <div class="mi-row"><span>Color space</span><span id="metaGamma">—</span></div>
             <div class="mi-row"><span>Video Range</span><span id="metaVR">—</span></div>
             <div class="mi-row"><span>Color primaries</span><span id="metaColorPrimaries">—</span></div>
+            <div class="mi-row"><span>Transfer chars.</span><span id="metaTransfer">—</span></div>
+            <div class="mi-row"><span>Matrix coef.</span><span id="metaMatrix">—</span></div>
+            <div class="mi-row"><span>Duração seg.</span><span id="metaDuration">—</span></div>
           </div>
+
+          <!-- Coluna Direita: Áudio + HLS -->
           <div class="mi-group">
             <p class="mi-group-title">Áudio</p>
             <div class="mi-row"><span>Codec</span><span id="metaAcodec">—</span></div>
@@ -271,17 +294,21 @@
             <div class="mi-row"><span>Sample rate</span><span id="metaSr">—</span></div>
             <div class="mi-row"><span>dBFS</span><span id="metricLoudness">—</span></div>
             <div class="mi-row"><span>LUFS short</span><span id="metricLufs">—</span></div>
+
             <p class="mi-group-title" style="margin-top:var(--space-3)">HLS / Manifesto</p>
             <div class="mi-row"><span>Versão HLS</span><span id="metaHlsVer">—</span></div>
             <div class="mi-row"><span>Rendições</span><span id="metaHlsLevels">—</span></div>
             <div class="mi-row"><span>Seg. duração</span><span id="metaHlsSeg">—</span></div>
             <div class="mi-row"><span>Latência est.</span><span id="metaHlsLatency">—</span></div>
           </div>
+
+          <!-- Fonte (largura total) -->
           <div class="mi-group mi-full">
             <p class="mi-group-title">Fonte</p>
             <div class="mi-row"><span>Tipo</span><span id="metaSrcType">—</span></div>
             <p class="mi-url" id="metaSrc">—</p>
           </div>
+
         </div>
       </div>
     </section>
@@ -291,7 +318,7 @@
       <p class="scope-section-title">Vídeo</p>
 
       <div class="scopes-grid">
-        <!-- Waveform com toggles Luma/RGB/YCbCr -->
+        <!-- Waveform -->
         <article class="scope-card" id="card-waveform">
           <div class="scope-header">
             <h3>Waveform</h3>
@@ -304,7 +331,7 @@
           <div class="scope-canvas-wrap"><canvas id="waveformCanvas"></canvas></div>
         </article>
 
-        <!-- CIE Chromaticity — botões removidos, ambos triângulos sempre visíveis no gráfico -->
+        <!-- CIE Chromaticity -->
         <article class="scope-card" id="card-cie">
           <div class="scope-header">
             <h3>CIE Chromaticity</h3>
@@ -313,24 +340,18 @@
           <div class="scope-canvas-wrap"><canvas id="cieCanvas"></canvas></div>
         </article>
 
-        <!-- Vectorscope com toggle BT.709/BT.2020 -->
+        <!-- Vectorscope — sem botões de std, apenas badge HDR igual ao CIE -->
         <article class="scope-card" id="card-vector">
           <div class="scope-header">
             <h3>Vectorscope</h3>
-            <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;flex-shrink:0">
-              <span class="hdr-warning" id="hdrWarningVs">⚠ HDR/BT.2020 — tone-mapped</span>
-              <div class="scope-btn-group" id="vsStdGroup">
-                <button class="scope-btn active" data-vsstd="bt709">BT.709</button>
-                <button class="scope-btn" data-vsstd="bt2020">BT.2020</button>
-              </div>
-            </div>
+            <span class="hdr-warning" id="hdrWarningVs">⚠ HDR/BT.2020 — cores tone-mapped pelo browser</span>
           </div>
           <div class="scope-canvas-wrap"><canvas id="vectorscopeCanvas"></canvas></div>
         </article>
       </div>
 
       <div class="scopes-row2" style="grid-template-columns:1fr 1fr">
-        <!-- Histograma com toggle Legal/Full -->
+        <!-- Histograma -->
         <article class="scope-card" id="card-histogram">
           <div class="scope-header">
             <h3>Histograma RGB</h3>
@@ -354,7 +375,6 @@
     <section class="scope-section" id="section-audio">
       <p class="scope-section-title">Áudio</p>
       <div class="scopes-row2">
-        <!-- Espectro movido para a seção de áudio -->
         <article class="scope-card" id="card-spectrum">
           <div class="scope-header"><h3>Espectro de áudio</h3></div>
           <div class="scope-canvas-wrap"><canvas id="audioCanvas"></canvas></div>
@@ -365,7 +385,7 @@
         </article>
         <article class="scope-card" id="card-loudness">
           <div class="scope-header"><h3>Loudness LUFS / dBFS</h3></div>
-          <canvas id="loudnessCanvas"></canvas>
+          <div class="scope-canvas-wrap"><canvas id="loudnessCanvas"></canvas></div>
         </article>
       </div>
     </section>
