@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = '3.0.1';
+  const VERSION = '3.0.2';
   console.log(
     `%c Monitor A/V %c v${VERSION} `,
     'background:#49b6c1;color:#101214;font-weight:900;padding:2px 0;border-radius:3px 0 0 3px',
@@ -10,6 +10,12 @@
   const D_STEP = [8, 4, 2, 1, 1];
   const HIST_LEGAL = { lo: 16, hi: 235 };
 
+  // Primárias CIE xy para triângulo de gamut
+  const CIE_GAMUT = {
+    bt709:  { r:[.640,.330], g:[.300,.600], b:[.150,.060], w:[.3127,.3290] },
+    bt2020: { r:[.708,.292], g:[.170,.797], b:[.131,.046], w:[.3127,.3290] },
+  };
+
   const state = {
     hls: null, audioContext: null, analyserL: null, analyserR: null,
     splitter: null, sourceNode: null, rafId: null,
@@ -17,7 +23,7 @@
     loudnessHistory: [], lufsShortBuf: [],
     worker: null, workerBusy: false,
     quality: 3, density: 3,
-    vsStd: 'bt709', wfMode: 'luma', histRange: 'legal',
+    vsStd: 'bt709', wfMode: 'luma', histRange: 'legal', cieStd: 'bt709',
     modules: { waveform:true, vector:true, histogram:true, cie:true, diamond:true, spectrum:true, phase:true, loudness:true },
     wfPoints: null, wfModeResult: 'luma',
     vsPoints: null,
@@ -52,6 +58,7 @@
     wfModeGroup: $('wfModeGroup'),
     vsStdGroup: $('vsStdGroup'),
     histRangeGroup: $('histRangeGroup'),
+    cieStdGroup: $('cieStdGroup'),
   };
 
   const offscreen = document.createElement('canvas');
@@ -89,8 +96,6 @@
   }
 
   // ── HiDPI canvas ───────────────────────────────────────────────────────────
-  // Alturas fixas espelham o CSS do index.html — parseInt(style.height) não
-  // funciona quando a altura é definida por regra CSS (não inline).
   const CANVAS_HEIGHTS = {
     waveformCanvas:160, vectorscopeCanvas:160, histogramCanvas:160,
     cieCanvas:160,      diamondCanvas:160,      audioCanvas:160,
@@ -282,6 +287,39 @@
     [.1741,.0050],
   ];
 
+  // Converte primária CIE xy → pixel no diagrama
+  function cieXyToPx(x, y, mx, my, pw, ph) {
+    return [mx + x * pw / .8, my + (1 - y / .9) * ph];
+  }
+
+  function drawCieGamutTriangle(ctx, std, mx, my, pw, ph) {
+    const g = CIE_GAMUT[std]; if (!g) return;
+    const [rx, ry] = cieXyToPx(g.r[0], g.r[1], mx, my, pw, ph);
+    const [gx, gy] = cieXyToPx(g.g[0], g.g[1], mx, my, pw, ph);
+    const [bx, by] = cieXyToPx(g.b[0], g.b[1], mx, my, pw, ph);
+    const [wx, wy] = cieXyToPx(g.w[0], g.w[1], mx, my, pw, ph);
+    const isBt2020 = std === 'bt2020';
+    const triColor  = isBt2020 ? 'rgba(255,180,84,.85)' : 'rgba(73,182,193,.85)';
+    const fillColor = isBt2020 ? 'rgba(255,180,84,.06)' : 'rgba(73,182,193,.06)';
+    ctx.beginPath();
+    ctx.moveTo(rx, ry); ctx.lineTo(gx, gy); ctx.lineTo(bx, by); ctx.closePath();
+    ctx.strokeStyle = triColor; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = fillColor; ctx.fill();
+    // Rótulos RGB
+    font(ctx, 9);
+    [['R', rx, ry, 'rgba(255,100,100,.9)'],
+     ['G', gx, gy, 'rgba(100,210,100,.9)'],
+     ['B', bx, by, 'rgba(100,140,255,.9)']].forEach(([lbl, px, py, col]) => {
+      ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(lbl, px, py - 4);
+    });
+    // Ponto branco D65
+    ctx.beginPath(); ctx.arc(wx, wy, 3, 0, Math.PI*2);
+    ctx.fillStyle = triColor; ctx.fill();
+    font(ctx, 8); ctx.fillStyle = triColor;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText('D65', wx + 4, wy);
+  }
+
   function drawCieOn(pts, canvas) {
     if (!canvas) return;
     const ctx = getCtx(canvas), w = cw(canvas), h = ch(canvas);
@@ -304,6 +342,7 @@
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';    ctx.fillText('x', mx+pw/2, my+ph+12);
     ctx.save(); ctx.translate(mx-16, my+ph/2); ctx.rotate(-Math.PI/2);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('y', 0, 0); ctx.restore();
+    // Spectral locus
     ctx.beginPath();
     CIE_LOCUS.forEach(([lx, ly], i) => {
       const px = mx + lx*pw/.8, py = my + (1 - ly/.9)*ph;
@@ -311,6 +350,14 @@
     });
     ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fill();
+    // Triângulo de gamut (BT.709 sempre + BT.2020 se selecionado)
+    if (state.cieStd === 'bt2020') {
+      drawCieGamutTriangle(ctx, 'bt709',  mx, my, pw, ph); // referência sutil
+      drawCieGamutTriangle(ctx, 'bt2020', mx, my, pw, ph); // selecionado em destaque
+    } else {
+      drawCieGamutTriangle(ctx, 'bt709', mx, my, pw, ph);
+    }
+    // Pontos do sinal
     if (pts && pts.length >= 2) {
       ctx.fillStyle = 'rgba(255,200,80,.55)';
       for (let i = 0; i < pts.length; i += 2) {
@@ -319,12 +366,11 @@
           ctx.fillRect(Math.round(px), Math.round(py), 1, 1);
       }
     }
+    // Label
     font(ctx, 9); ctx.fillStyle = 'rgba(73,182,193,.8)';
     ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-    const csLabel = (el.metaVR && el.metaVR.textContent !== '\u2014')
-      ? 'CIE 1931 xy \u00b7 ' + el.metaVR.textContent
-      : 'CIE 1931 xy';
-    ctx.fillText(csLabel, w - 4, 4);
+    const stdLabel = state.cieStd === 'bt2020' ? 'BT.2020' : 'BT.709';
+    ctx.fillText('CIE 1931 xy \u00b7 ' + stdLabel, w - 4, 4);
   }
 
   // ── DIAMOND / TWIN PEAKS ───────────────────────────────────────────────────
@@ -753,6 +799,14 @@
       btn.addEventListener('click', () => {
         el.histRangeGroup.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active'); state.histRange = btn.dataset.histrange;
+      });
+    });
+    // CIE gamut standard
+    el.cieStdGroup && el.cieStdGroup.querySelectorAll('.scope-btn[data-ciestd]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        el.cieStdGroup.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active'); state.cieStd = btn.dataset.ciestd;
+        if (state.modules.cie) drawCieOn(state.ciePoints, el.cieCanvas);
       });
     });
   }
