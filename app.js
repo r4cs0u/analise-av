@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = '3.0.3';
+  const VERSION = '3.1.0';
   console.log(
     `%c Monitor A/V %c v${VERSION} `,
     'background:#49b6c1;color:#101214;font-weight:900;padding:2px 0;border-radius:3px 0 0 3px',
@@ -40,31 +40,38 @@
     audioState: $('audioState'), corsState: $('corsState'),
     videoDot: $('videoDot'), audioDot: $('audioDot'), corsDot: $('corsDot'),
     sourceBadge: $('sourceBadge'),
-    metaRes: $('metaRes'), metaResMax: $('metaResMax'), metaFps: $('metaFps'),
-    metaFpsStream: $('metaFpsStream'), metaVcodec: $('metaVcodec'),
+    // meta vídeo
+    metaRes: $('metaRes'), metaResMax: $('metaResMax'),
+    metaFps: $('metaFps'), metaFpsStream: $('metaFpsStream'),
+    metaVcodec: $('metaVcodec'), metaCodecId: $('metaCodecId'),
+    metaWidth: $('metaWidth'), metaHeight: $('metaHeight'),
+    metaBitrate: $('metaBitrate'), metaAR: $('metaAR'),
+    metaGamma: $('metaGamma'), metaVR: $('metaVR'),
+    metaColorPrimaries: $('metaColorPrimaries'),
+    metaBitDepth: $('metaBitDepth'), metaChroma: $('metaChroma'),
+    metaTransfer: $('metaTransfer'), metaMatrix: $('metaMatrix'),
+    metaDuration: $('metaDuration'),
+    // meta áudio / HLS / fonte
     metaAcodec: $('metaAcodec'), metaChans: $('metaChans'), metaSr: $('metaSr'),
-    metaBitrate: $('metaBitrate'), metaGamma: $('metaGamma'),
-    metaAR: $('metaAR'), metaSrc: $('metaSrc'), metaSrcType: $('metaSrcType'),
-    metaVR: $('metaVR'), metaColorPrimaries: $('metaColorPrimaries'),
-    metaHlsVer: $('metaHlsVer'),
-    metaHlsLevels: $('metaHlsLevels'), metaHlsSeg: $('metaHlsSeg'),
-    metaHlsLatency: $('metaHlsLatency'),
+    metaHlsVer: $('metaHlsVer'), metaHlsLevels: $('metaHlsLevels'),
+    metaHlsSeg: $('metaHlsSeg'), metaHlsLatency: $('metaHlsLatency'),
+    metaSrc: $('metaSrc'), metaSrcType: $('metaSrcType'),
     metricLoudness: $('metricLoudness'), metricLufs: $('metricLufs'),
+    // canvas
     waveformCanvas: $('waveformCanvas'), vectorscopeCanvas: $('vectorscopeCanvas'),
     histogramCanvas: $('histogramCanvas'), audioCanvas: $('audioCanvas'),
     phaseCanvas: $('phaseCanvas'), loudnessCanvas: $('loudnessCanvas'),
     cieCanvas: $('cieCanvas'), diamondCanvas: $('diamondCanvas'),
+    // controles
     hlsQualityWrap: $('hlsQualityWrap'), hlsQualitySelect: $('hlsQualitySelect'),
     sliderQuality: $('sliderQuality'), sliderDensity: $('sliderDensity'),
     valQuality: $('valQuality'), valDensity: $('valDensity'),
     wfModeGroup: $('wfModeGroup'),
-    vsStdGroup: $('vsStdGroup'),
     histRangeGroup: $('histRangeGroup'),
     hdrWarningCie: $('hdrWarningCie'),
     hdrWarningVs: $('hdrWarningVs'),
   };
 
-  // ── Exposão para debug no console ────────────────────────────────────────
   window.__monitor = { state, el };
 
   const offscreen = document.createElement('canvas');
@@ -102,10 +109,11 @@
   }
 
   // ── HiDPI canvas ───────────────────────────────────────────────────────────
+  // Todos os canvas com 160px de altura (uniforme)
   const CANVAS_HEIGHTS = {
     waveformCanvas:160, vectorscopeCanvas:160, histogramCanvas:160,
     cieCanvas:160,      diamondCanvas:160,      audioCanvas:160,
-    phaseCanvas:220,    loudnessCanvas:220,
+    phaseCanvas:160,    loudnessCanvas:160,
   };
   function initCanvases() {
     const dpr = window.devicePixelRatio || 1;
@@ -310,7 +318,6 @@
     ctx.moveTo(rx, ry); ctx.lineTo(gx, gy); ctx.lineTo(bx, by); ctx.closePath();
     ctx.strokeStyle = triColor; ctx.lineWidth = isBt2020 ? 1.4 : 1; ctx.stroke();
     ctx.fillStyle = fillColor; ctx.fill();
-    // Rótulos apenas no triângulo BT.2020 (evitar duplicidade)
     if (isBt2020) {
       font(ctx, 9);
       [['R', rx, ry, 'rgba(255,100,100,.9)'],
@@ -348,7 +355,6 @@
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';    ctx.fillText('x', mx+pw/2, my+ph+12);
     ctx.save(); ctx.translate(mx-16, my+ph/2); ctx.rotate(-Math.PI/2);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('y', 0, 0); ctx.restore();
-    // Spectral locus
     ctx.beginPath();
     CIE_LOCUS.forEach(([lx, ly], i) => {
       const px = mx + lx*pw/.8, py = my + (1 - ly/.9)*ph;
@@ -356,10 +362,8 @@
     });
     ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fill();
-    // Sempre desenha BT.709 (ciano sutil) + BT.2020 (âmbar destaque)
     drawCieGamutTriangle(ctx, 'bt709',  mx, my, pw, ph);
     drawCieGamutTriangle(ctx, 'bt2020', mx, my, pw, ph);
-    // Pontos do sinal
     if (pts && pts.length >= 2) {
       ctx.fillStyle = 'rgba(255,200,80,.55)';
       for (let i = 0; i < pts.length; i += 2) {
@@ -368,44 +372,81 @@
           ctx.fillRect(Math.round(px), Math.round(py), 1, 1);
       }
     }
-    // Label fixo
     font(ctx, 9); ctx.fillStyle = 'rgba(73,182,193,.8)';
     ctx.textAlign = 'right'; ctx.textBaseline = 'top';
     ctx.fillText('CIE 1931 xy \u00b7 BT.709 + BT.2020', w - 4, 4);
   }
 
   // ── DIAMOND / TWIN PEAKS ───────────────────────────────────────────────────
+  // Eixos corretos: Y vertical, C diagonal a 45°
+  // Mapeamento: x_canvas = (Cr + Y) / 2, y_canvas = (Y - Cb) / 2
+  // pts[i]=Cr normalizado [-1,1], pts[i+1]=Y normalizado [0,1]
+  // A rotação a 45° é feita desenhando as grades com as diagonais como eixos
   function drawDiamondOn(pts, canvas) {
     if (!canvas) return;
     const ctx = getCtx(canvas), w = cw(canvas), h = ch(canvas);
     fillBg(ctx, w, h);
-    const cx = w/2, cy = h/2, sc = Math.min(cx, cy) * .84;
+    const cx = w/2, cy = h/2;
+    // sc: metade da largura do diamante em pixels, quadrado
+    const sc = Math.min(cx, cy) * .84;
+
+    // Desenha diamante com bordas paralelas ao eixo rotacionado 45°
+    // Vértices: topo=(cx,cy-sc), dir=(cx+sc,cy), baixo=(cx,cy+sc), esq=(cx-sc,cy)
     ctx.beginPath();
-    ctx.moveTo(cx,    cy-sc); ctx.lineTo(cx+sc, cy);
-    ctx.lineTo(cx,    cy+sc); ctx.lineTo(cx-sc, cy);
+    ctx.moveTo(cx, cy - sc);
+    ctx.lineTo(cx + sc, cy);
+    ctx.lineTo(cx, cy + sc);
+    ctx.lineTo(cx - sc, cy);
     ctx.closePath();
     ctx.strokeStyle = GC2; ctx.lineWidth = 1.2; ctx.stroke();
     ctx.fillStyle = 'rgba(73,182,193,.03)'; ctx.fill();
-    ctx.strokeStyle = GC2; ctx.lineWidth = .7;
+
+    // Grade interna: linhas diagonais dentro do diamante
+    ctx.strokeStyle = GC; ctx.lineWidth = .6;
+    // Eixo vertical central e eixo horizontal central
     ctx.beginPath();
-    ctx.moveTo(cx, cy-sc); ctx.lineTo(cx, cy+sc);
-    ctx.moveTo(cx-sc, cy); ctx.lineTo(cx+sc, cy);
-    const s75 = sc * .75;
-    ctx.moveTo(cx, cy-s75); ctx.lineTo(cx+s75, cy);
-    ctx.lineTo(cx, cy+s75); ctx.lineTo(cx-s75, cy); ctx.closePath();
+    ctx.moveTo(cx, cy - sc); ctx.lineTo(cx, cy + sc);
+    ctx.moveTo(cx - sc, cy); ctx.lineTo(cx + sc, cy);
     ctx.stroke();
+    // Linhas de 75%
+    const s75 = sc * .75;
+    ctx.strokeStyle = GC; ctx.lineWidth = .5;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - s75); ctx.lineTo(cx + s75, cy);
+    ctx.lineTo(cx, cy + s75); ctx.lineTo(cx - s75, cy);
+    ctx.closePath();
+    ctx.stroke();
+    // Linhas de 50%
+    const s50 = sc * .50;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - s50); ctx.lineTo(cx + s50, cy);
+    ctx.lineTo(cx, cy + s50); ctx.lineTo(cx - s50, cy);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Labels
     font(ctx, 9); ctx.fillStyle = LC;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('Y\u2191', cx, cy-sc-4);
-    ctx.textBaseline = 'top';    ctx.fillText('Y\u2193', cx, cy+sc+4);
-    ctx.textAlign = 'right';  ctx.textBaseline = 'middle'; ctx.fillText('B-Y', cx-sc-4, cy);
-    ctx.textAlign = 'left';   ctx.fillText('R-Y', cx+sc+4, cy);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('+Y', cx, cy - sc - 4);
+    ctx.textBaseline = 'top';                              ctx.fillText('\u2212Y', cx, cy + sc + 4);
+    ctx.textAlign = 'right';  ctx.textBaseline = 'middle'; ctx.fillText('\u2212C', cx - sc - 4, cy);
+    ctx.textAlign = 'left';                                ctx.fillText('+C', cx + sc + 4, cy);
+
     font(ctx, 9); ctx.fillStyle = 'rgba(73,182,193,.8)';
-    ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText('Diamond', w-4, 4);
+    ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText('Diamond', w - 4, 4);
+
     if (!pts || pts.length < 2) return;
+
+    // Mapeamento correto Diamond (Twin-Peaks / rotação 45°):
+    // worker envia: pts[i] = (R-Y) norm, pts[i+1] = Y norm (ambos em [-1,1] ou [0,1])
+    // No diamond, eixo X = soma, eixo Y = diferença, rotacionado 45°
+    // canvas_x = cx + ((pts[i] + pts[i+1]) / 2) * sc
+    // canvas_y = cy - ((pts[i+1] - pts[i]) / 2) * sc  — Y para cima
     ctx.fillStyle = 'rgba(73,182,193,.3)';
     for (let i = 0; i < pts.length; i += 2) {
-      const px = Math.round(cx + pts[i]*sc);
-      const py = Math.round(cy - pts[i+1]*sc);
+      const a = pts[i];   // R-Y (ou Cr norm)
+      const b = pts[i+1]; // Y norm
+      const px = Math.round(cx + ((a + b) * 0.5) * sc);
+      const py = Math.round(cy - ((b - a) * 0.5) * sc);
       if (px >= 0 && px < w && py >= 0 && py < h) ctx.fillRect(px, py, 1, 1);
     }
   }
@@ -483,30 +524,44 @@
     if (el.metricLoudness) el.metricLoudness.textContent = db.toFixed(1) + ' dBFS';
     if (el.metricLufs)     el.metricLufs.textContent     = lufs.toFixed(1) + ' LUFS';
     fillBg(ctx, w, h);
-    const refs = [
-      { v:0,   l:'0 dBFS',    c:'rgba(255,107,129,.75)' },
-      { v:-9,  l:'-9',        c:'rgba(255,180,84,.6)'   },
-      { v:-16, l:'-16 str',   c:'rgba(119,178,85,.6)'   },
-      { v:-23, l:'-23 R128',  c:'rgba(73,182,193,.6)'   },
-    ];
+    // Escala completa 0 a -60 dBFS
+    const dbToY = v => h * (1 - (v + 60) / 60);
+    // Linhas de grade a cada 10dB
     font(ctx, 9);
+    for (let db2 = 0; db2 >= -60; db2 -= 10) {
+      const y = dbToY(db2);
+      const isMajor = db2 === 0 || db2 === -23 || db2 === -60;
+      ctx.strokeStyle = isMajor ? GC2 : GC; ctx.lineWidth = isMajor ? .8 : .5;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w - 18, y); ctx.stroke();
+      ctx.fillStyle = LC; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(db2 === 0 ? '0' : db2, w - 20, y);
+    }
+    // Linhas de referência nomeadas
+    const refs = [
+      { v: 0,   l: '0',        c: 'rgba(255,107,129,.75)' },
+      { v: -9,  l: '-9',       c: 'rgba(255,180,84,.6)'   },
+      { v: -16, l: '-16 str',  c: 'rgba(119,178,85,.6)'   },
+      { v: -23, l: 'R128',     c: 'rgba(73,182,193,.7)'   },
+    ];
     refs.forEach(({ v, l, c }) => {
-      const y = h * (1 - (v + 60)/60);
-      ctx.strokeStyle = c; ctx.lineWidth = .8;
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+      const y = dbToY(v);
+      ctx.strokeStyle = c; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w - 18, y); ctx.stroke();
       ctx.fillStyle = c.replace(/[\d.]+\)$/, '.95)');
-      ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText(l, w-18, y-1);
+      ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText(l, w - 20, y - 1);
     });
+    // Curva histórico
     ctx.strokeStyle = 'rgba(255,180,84,.95)'; ctx.lineWidth = 1.5; ctx.beginPath();
     state.loudnessHistory.forEach((v, i) => {
-      const x = (i / Math.max(1, state.loudnessHistory.length - 1)) * w;
-      const y = h * (1 - (v + 60)/60);
+      const x = (i / Math.max(1, state.loudnessHistory.length - 1)) * (w - 18);
+      const y = dbToY(v);
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }); ctx.stroke();
-    const bH = Math.max(1, (db + 60)/60 * h);
+    // Barra de nível atual (lateral direita)
+    const bH = Math.max(1, (db + 60) / 60 * h);
     const bc2 = db > -9 ? '#ff6b81' : db > -16 ? '#ffb454' : '#77b255';
-    ctx.fillStyle = bc2 + '55'; ctx.fillRect(w-14, h-bH, 10, bH);
-    ctx.fillStyle = bc2;        ctx.fillRect(w-14, h-bH, 10, 2);
+    ctx.fillStyle = bc2 + '55'; ctx.fillRect(w - 14, h - bH, 10, bH);
+    ctx.fillStyle = bc2;        ctx.fillRect(w - 14, h - bH, 10, 2);
   }
 
   // ── Loop principal ─────────────────────────────────────────────────────────
@@ -521,7 +576,12 @@
       if (el.metaFps) el.metaFps.textContent = fps + ' fps';
       state.frameCount = 0; state.lastFrameAt = ts;
     }
-    if (el.metaRes) el.metaRes.textContent = `${v.videoWidth}\u00d7${v.videoHeight}`;
+    // Atualiza resolução / dimensões em tempo real
+    if (el.metaRes)    el.metaRes.textContent    = `${v.videoWidth}\u00d7${v.videoHeight}`;
+    if (el.metaWidth)  el.metaWidth.textContent  = v.videoWidth  + ' px';
+    if (el.metaHeight) el.metaHeight.textContent = v.videoHeight + ' px';
+    // Atualiza metadata HLS a cada ~2s
+    if (state.hls && delta >= 2000) updateHlsMetadata();
     const hasVideo = state.modules.waveform || state.modules.vector ||
                      state.modules.histogram || state.modules.cie || state.modules.diamond;
     if (hasVideo && !state.workerBusy && state.worker) {
@@ -584,20 +644,30 @@
     const lvl    = state.hls.currentLevel >= 0 ? state.hls.levels[state.hls.currentLevel] : null;
     const maxLvl = state.hls.levels[state.hls.levels.length - 1];
     if (maxLvl) {
-      if (el.metaResMax)    el.metaResMax.textContent    = `${maxLvl.width}\u00d7${maxLvl.height}`;
-      const fr = maxLvl.attrs?.['FRAME-RATE'] ? parseFloat(maxLvl.attrs['FRAME-RATE']).toFixed(2) + ' fps' : '\u2014';
+      const attrs = maxLvl.attrs || {};
+
+      // Dimensões
+      if (el.metaResMax)  el.metaResMax.textContent  = `${maxLvl.width}\u00d7${maxLvl.height}`;
+
+      // FPS
+      const fr = attrs['FRAME-RATE'] ? parseFloat(attrs['FRAME-RATE']).toFixed(2) + ' fps' : '\u2014';
       if (el.metaFpsStream) el.metaFpsStream.textContent = fr;
-      const vc = maxLvl.attrs?.['CODECS'] ? maxLvl.attrs['CODECS'].split(',')[0] : 'H.264 (HLS)';
-      if (el.metaVcodec)    el.metaVcodec.textContent    = vc;
+
+      // Codec / Codec ID
+      const codecStr = attrs['CODECS'] || '';
+      const vc = codecStr ? codecStr.split(',')[0] : 'H.264 (HLS)';
+      if (el.metaVcodec)  el.metaVcodec.textContent  = vc;
+      // Codec ID: tenta extrair código numérico do codec string (ex: avc1.640028 → avc1)
+      const codecId = codecStr ? codecStr.split('.')[0] : '\u2014';
+      if (el.metaCodecId) el.metaCodecId.textContent = codecId;
 
       // VIDEO-RANGE e Color space
-      const vr = maxLvl.attrs?.['VIDEO-RANGE'] || 'SDR';
+      const vr = attrs['VIDEO-RANGE'] || 'SDR';
       if (el.metaVR)    el.metaVR.textContent    = vr;
-      if (el.metaGamma) el.metaGamma.textContent = vr;
+      if (el.metaGamma) el.metaGamma.textContent = vr === 'HLG' ? 'HLG' : vr === 'PQ' ? 'PQ/HDR10' : 'SDR';
 
-      // Color primaries: usa COLOR-PRIMARIES do manifesto se existir,
-      // senão infere pelo VIDEO-RANGE
-      const cpRaw = maxLvl.attrs?.['COLOR-PRIMARIES'] || '';
+      // Color primaries
+      const cpRaw = attrs['COLOR-PRIMARIES'] || '';
       let colorPrimaries;
       if (cpRaw) {
         colorPrimaries = cpRaw;
@@ -608,11 +678,31 @@
       }
       if (el.metaColorPrimaries) el.metaColorPrimaries.textContent = colorPrimaries;
 
-      // Ativa badge de aviso se HDR
+      // Transfer characteristics: inferido pelo VIDEO-RANGE
+      const transfer = attrs['TRANSFER-CHARACTERISTICS'] ||
+        (vr === 'HLG' ? 'HLG (ARIB STD-B67)' : vr === 'PQ' ? 'PQ (SMPTE ST 2084)' : 'BT.709');
+      if (el.metaTransfer) el.metaTransfer.textContent = transfer;
+
+      // Matrix coefficients: inferido pelas primárias
+      const matrix = attrs['MATRIX-COEFFICIENTS'] ||
+        (colorPrimaries.includes('2020') ? 'BT.2020 constant' : 'BT.709');
+      if (el.metaMatrix) el.metaMatrix.textContent = matrix;
+
+      // Bit depth e Chroma: não expostos no manifesto HLS; estimados por VIDEO-RANGE
+      const bitDepth = (vr === 'HLG' || vr === 'PQ') ? '10 bits' : '8 bits';
+      if (el.metaBitDepth) el.metaBitDepth.textContent = bitDepth;
+      const chroma = (vr === 'HLG' || vr === 'PQ') ? '4:2:0' : '4:2:0';
+      if (el.metaChroma) el.metaChroma.textContent = chroma;
+
+      // Badges HDR
       const isHdr = vr === 'HLG' || vr === 'PQ';
       applyHdrBadges(isHdr);
     }
+
+    // Bitrate do nível atual
     if (lvl?.bitrate && el.metaBitrate) el.metaBitrate.textContent = (lvl.bitrate/1000).toFixed(0) + ' kbps';
+
+    // HLS meta
     const nLevels = state.hls.levels.length;
     if (el.metaHlsLevels) el.metaHlsLevels.textContent = nLevels + ' rendi\u00e7\u00f5es';
     if (el.metaHlsVer)    el.metaHlsVer.textContent    = '3+';
@@ -623,21 +713,43 @@
         ? (state.hls.liveSyncPosition - el.video.currentTime).toFixed(1) + 's' : '\u2014';
       if (el.metaHlsLatency) el.metaHlsLatency.textContent = lat;
     } catch(e) {}
+
+    // Duração do segmento atual
+    const dur = el.video.duration;
+    if (el.metaDuration && dur && isFinite(dur)) {
+      const m = Math.floor(dur/60), s = Math.floor(dur%60);
+      el.metaDuration.textContent = `${m}:${String(s).padStart(2,'0')}`;
+    }
   }
 
   function updateVideoMetadata() {
     const v = el.video;
     if (!v.videoWidth) return;
     const w = v.videoWidth, h = v.videoHeight;
-    if (el.metaRes) el.metaRes.textContent = `${w}\u00d7${h}`;
+    if (el.metaRes)    el.metaRes.textContent    = `${w}\u00d7${h}`;
+    if (el.metaWidth)  el.metaWidth.textContent  = w + ' px';
+    if (el.metaHeight) el.metaHeight.textContent = h + ' px';
     const gcd = (a, b) => b ? gcd(b, a%b) : a, g = gcd(w, h);
-    if (el.metaAR)  el.metaAR.textContent  = `${w/g}:${h/g}`;
+    if (el.metaAR) el.metaAR.textContent = `${w/g}:${h/g}`;
+
+    // Duração
+    const dur = v.duration;
+    if (el.metaDuration && dur && isFinite(dur)) {
+      const m = Math.floor(dur/60), s = Math.floor(dur%60);
+      el.metaDuration.textContent = `${m}:${String(s).padStart(2,'0')}`;
+    }
+
     if (!state.hls) {
       const isBlobTs = v.currentSrc.startsWith('blob:');
       if (el.metaVcodec)         el.metaVcodec.textContent         = isBlobTs ? 'MPEG-TS (local)' : 'H.264/AVC';
-      if (el.metaGamma)          el.metaGamma.textContent          = '\u2014';
+      if (el.metaCodecId)        el.metaCodecId.textContent        = isBlobTs ? 'MPEG-TS' : 'avc1';
+      if (el.metaGamma)          el.metaGamma.textContent          = 'SDR';
       if (el.metaVR)             el.metaVR.textContent             = 'SDR (estimado)';
       if (el.metaColorPrimaries) el.metaColorPrimaries.textContent = 'BT.709 (estimado)';
+      if (el.metaTransfer)       el.metaTransfer.textContent       = 'BT.709';
+      if (el.metaMatrix)         el.metaMatrix.textContent         = 'BT.709';
+      if (el.metaBitDepth)       el.metaBitDepth.textContent       = '8 bits (estimado)';
+      if (el.metaChroma)         el.metaChroma.textContent         = '4:2:0 (estimado)';
       if (el.metaResMax)         el.metaResMax.textContent         = `${w}\u00d7${h}`;
       if (el.metaHlsVer)         el.metaHlsVer.textContent         = 'N/A';
       if (el.metaHlsLevels)      el.metaHlsLevels.textContent      = 'N/A';
@@ -812,24 +924,21 @@
 
   // ── Scope buttons (dentro dos cards) ──────────────────────────────────────
   function initScopeButtons() {
+    // Waveform mode
     el.wfModeGroup && el.wfModeGroup.querySelectorAll('.scope-btn[data-wfmode]').forEach(btn => {
       btn.addEventListener('click', () => {
         el.wfModeGroup.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active'); state.wfMode = btn.dataset.wfmode;
       });
     });
-    el.vsStdGroup && el.vsStdGroup.querySelectorAll('.scope-btn[data-vsstd]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        el.vsStdGroup.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active'); state.vsStd = btn.dataset.vsstd;
-      });
-    });
+    // Histograma range
     el.histRangeGroup && el.histRangeGroup.querySelectorAll('.scope-btn[data-histrange]').forEach(btn => {
       btn.addEventListener('click', () => {
         el.histRangeGroup.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active'); state.histRange = btn.dataset.histrange;
       });
     });
+    // vsStdGroup removido — vectorscope sempre usa state.vsStd = 'bt709'
   }
 
   // ── Theme ──────────────────────────────────────────────────────────────────
