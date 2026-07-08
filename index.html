@@ -116,6 +116,10 @@
     .scope-canvas-wrap canvas{width:100%;height:auto;display:block;border-radius:var(--radius-lg);background:#090b0d}
     .scope-card-hidden{display:none!important}
 
+    /* ── Badge de aviso HDR ── */
+    .hdr-warning{display:none;align-items:center;gap:.3rem;font-size:.62rem;font-weight:700;color:var(--color-warning);background:oklch(from var(--color-warning) l c h/.1);border:1px solid oklch(from var(--color-warning) l c h/.3);border-radius:var(--radius-full);padding:.15rem .5rem;white-space:nowrap;flex-shrink:0}
+    .hdr-warning.visible{display:flex}
+
     /* canvas de altura fixa por módulo */
     #waveformCanvas{height:160px}
     #cieCanvas{height:160px}
@@ -188,8 +192,8 @@
     <!-- Performance -->
     <section class="panel stack">
       <p class="panel-title">Performance</p>
-      <div class="slider-row"><label>Qualidade</label><input type="range" id="sliderQuality" min="1" max="5" value="3"/><span class="slider-val" id="valQuality">3</span></div>
-      <div class="slider-row"><label>Densidade</label><input type="range" id="sliderDensity" min="1" max="5" value="3"/><span class="slider-val" id="valDensity">3</span></div>
+      <div class="slider-row"><label>Qualidade</label><input type="range" id="sliderQuality" min="1" max="5" value="1"/><span class="slider-val" id="valQuality">1</span></div>
+      <div class="slider-row"><label>Densidade</label><input type="range" id="sliderDensity" min="1" max="5" value="5"/><span class="slider-val" id="valDensity">5</span></div>
     </section>
 
     <!-- Estado -->
@@ -258,6 +262,7 @@
             <div class="mi-row"><span>Aspect ratio</span><span id="metaAR">—</span></div>
             <div class="mi-row"><span>Color space</span><span id="metaGamma">—</span></div>
             <div class="mi-row"><span>Video Range</span><span id="metaVR">—</span></div>
+            <div class="mi-row"><span>Color primaries</span><span id="metaColorPrimaries">—</span></div>
           </div>
           <div class="mi-group">
             <p class="mi-group-title">Áudio</p>
@@ -299,14 +304,11 @@
           <div class="scope-canvas-wrap"><canvas id="waveformCanvas"></canvas></div>
         </article>
 
-        <!-- CIE Chromaticity com toggle BT.709 / BT.2020 -->
+        <!-- CIE Chromaticity — botões removidos, ambos triângulos sempre visíveis no gráfico -->
         <article class="scope-card" id="card-cie">
           <div class="scope-header">
             <h3>CIE Chromaticity</h3>
-            <div class="scope-btn-group" id="cieStdGroup">
-              <button class="scope-btn active" data-ciestd="bt709">BT.709</button>
-              <button class="scope-btn" data-ciestd="bt2020">BT.2020</button>
-            </div>
+            <span class="hdr-warning" id="hdrWarningCie">⚠ HDR/BT.2020 — cores tone-mapped pelo browser</span>
           </div>
           <div class="scope-canvas-wrap"><canvas id="cieCanvas"></canvas></div>
         </article>
@@ -315,16 +317,19 @@
         <article class="scope-card" id="card-vector">
           <div class="scope-header">
             <h3>Vectorscope</h3>
-            <div class="scope-btn-group" id="vsStdGroup">
-              <button class="scope-btn active" data-vsstd="bt709">BT.709</button>
-              <button class="scope-btn" data-vsstd="bt2020">BT.2020</button>
+            <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;flex-shrink:0">
+              <span class="hdr-warning" id="hdrWarningVs">⚠ HDR/BT.2020 — tone-mapped</span>
+              <div class="scope-btn-group" id="vsStdGroup">
+                <button class="scope-btn active" data-vsstd="bt709">BT.709</button>
+                <button class="scope-btn" data-vsstd="bt2020">BT.2020</button>
+              </div>
             </div>
           </div>
           <div class="scope-canvas-wrap"><canvas id="vectorscopeCanvas"></canvas></div>
         </article>
       </div>
 
-      <div class="scopes-row2">
+      <div class="scopes-row2" style="grid-template-columns:1fr 1fr">
         <!-- Histograma com toggle Legal/Full -->
         <article class="scope-card" id="card-histogram">
           <div class="scope-header">
@@ -342,19 +347,18 @@
           <div class="scope-header"><h3>Diamond (Twin Peaks)</h3></div>
           <div class="scope-canvas-wrap"><canvas id="diamondCanvas"></canvas></div>
         </article>
-
-        <!-- Espectro de áudio (mesma linha = mesma altura) -->
-        <article class="scope-card" id="card-spectrum">
-          <div class="scope-header"><h3>Espectro de áudio</h3></div>
-          <div class="scope-canvas-wrap"><canvas id="audioCanvas"></canvas></div>
-        </article>
       </div>
     </section>
 
     <!-- Escopos de áudio -->
     <section class="scope-section" id="section-audio">
       <p class="scope-section-title">Áudio</p>
-      <div class="scopes-row2" style="grid-template-columns:1fr 1fr">
+      <div class="scopes-row2">
+        <!-- Espectro movido para a seção de áudio -->
+        <article class="scope-card" id="card-spectrum">
+          <div class="scope-header"><h3>Espectro de áudio</h3></div>
+          <div class="scope-canvas-wrap"><canvas id="audioCanvas"></canvas></div>
+        </article>
         <article class="scope-card" id="card-phase">
           <div class="scope-header"><h3>Phase / Goniômetro</h3></div>
           <div class="scope-canvas-wrap"><canvas id="phaseCanvas"></canvas></div>
