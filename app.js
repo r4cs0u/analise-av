@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = '3.0.2';
+  const VERSION = '3.0.3';
   console.log(
     `%c Monitor A/V %c v${VERSION} `,
     'background:#49b6c1;color:#101214;font-weight:900;padding:2px 0;border-radius:3px 0 0 3px',
@@ -22,13 +22,14 @@
     lastFrameAt: 0, frameCount: 0, activeSource: null,
     loudnessHistory: [], lufsShortBuf: [],
     worker: null, workerBusy: false,
-    quality: 3, density: 3,
-    vsStd: 'bt709', wfMode: 'luma', histRange: 'legal', cieStd: 'bt709',
+    quality: 1, density: 5,
+    vsStd: 'bt709', wfMode: 'luma', histRange: 'legal',
     modules: { waveform:true, vector:true, histogram:true, cie:true, diamond:true, spectrum:true, phase:true, loudness:true },
     wfPoints: null, wfModeResult: 'luma',
     vsPoints: null,
     histR: null, histG: null, histB: null,
     ciePoints: null, diamondPoints: null,
+    isHdr: false,
   };
 
   const $ = id => document.getElementById(id);
@@ -44,7 +45,8 @@
     metaAcodec: $('metaAcodec'), metaChans: $('metaChans'), metaSr: $('metaSr'),
     metaBitrate: $('metaBitrate'), metaGamma: $('metaGamma'),
     metaAR: $('metaAR'), metaSrc: $('metaSrc'), metaSrcType: $('metaSrcType'),
-    metaVR: $('metaVR'), metaHlsVer: $('metaHlsVer'),
+    metaVR: $('metaVR'), metaColorPrimaries: $('metaColorPrimaries'),
+    metaHlsVer: $('metaHlsVer'),
     metaHlsLevels: $('metaHlsLevels'), metaHlsSeg: $('metaHlsSeg'),
     metaHlsLatency: $('metaHlsLatency'),
     metricLoudness: $('metricLoudness'), metricLufs: $('metricLufs'),
@@ -58,8 +60,12 @@
     wfModeGroup: $('wfModeGroup'),
     vsStdGroup: $('vsStdGroup'),
     histRangeGroup: $('histRangeGroup'),
-    cieStdGroup: $('cieStdGroup'),
+    hdrWarningCie: $('hdrWarningCie'),
+    hdrWarningVs: $('hdrWarningVs'),
   };
+
+  // ── Exposão para debug no console ────────────────────────────────────────
+  window.__monitor = { state, el };
 
   const offscreen = document.createElement('canvas');
   const offctx = offscreen.getContext('2d', { willReadFrequently: true });
@@ -287,7 +293,6 @@
     [.1741,.0050],
   ];
 
-  // Converte primária CIE xy → pixel no diagrama
   function cieXyToPx(x, y, mx, my, pw, ph) {
     return [mx + x * pw / .8, my + (1 - y / .9) * ph];
   }
@@ -303,21 +308,22 @@
     const fillColor = isBt2020 ? 'rgba(255,180,84,.06)' : 'rgba(73,182,193,.06)';
     ctx.beginPath();
     ctx.moveTo(rx, ry); ctx.lineTo(gx, gy); ctx.lineTo(bx, by); ctx.closePath();
-    ctx.strokeStyle = triColor; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.strokeStyle = triColor; ctx.lineWidth = isBt2020 ? 1.4 : 1; ctx.stroke();
     ctx.fillStyle = fillColor; ctx.fill();
-    // Rótulos RGB
-    font(ctx, 9);
-    [['R', rx, ry, 'rgba(255,100,100,.9)'],
-     ['G', gx, gy, 'rgba(100,210,100,.9)'],
-     ['B', bx, by, 'rgba(100,140,255,.9)']].forEach(([lbl, px, py, col]) => {
-      ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      ctx.fillText(lbl, px, py - 4);
-    });
-    // Ponto branco D65
-    ctx.beginPath(); ctx.arc(wx, wy, 3, 0, Math.PI*2);
-    ctx.fillStyle = triColor; ctx.fill();
-    font(ctx, 8); ctx.fillStyle = triColor;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText('D65', wx + 4, wy);
+    // Rótulos apenas no triângulo BT.2020 (evitar duplicidade)
+    if (isBt2020) {
+      font(ctx, 9);
+      [['R', rx, ry, 'rgba(255,100,100,.9)'],
+       ['G', gx, gy, 'rgba(100,210,100,.9)'],
+       ['B', bx, by, 'rgba(100,140,255,.9)']].forEach(([lbl, px, py, col]) => {
+        ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.fillText(lbl, px, py - 4);
+      });
+      ctx.beginPath(); ctx.arc(wx, wy, 3, 0, Math.PI*2);
+      ctx.fillStyle = triColor; ctx.fill();
+      font(ctx, 8); ctx.fillStyle = triColor;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText('D65', wx + 4, wy);
+    }
   }
 
   function drawCieOn(pts, canvas) {
@@ -350,13 +356,9 @@
     });
     ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fill();
-    // Triângulo de gamut (BT.709 sempre + BT.2020 se selecionado)
-    if (state.cieStd === 'bt2020') {
-      drawCieGamutTriangle(ctx, 'bt709',  mx, my, pw, ph); // referência sutil
-      drawCieGamutTriangle(ctx, 'bt2020', mx, my, pw, ph); // selecionado em destaque
-    } else {
-      drawCieGamutTriangle(ctx, 'bt709', mx, my, pw, ph);
-    }
+    // Sempre desenha BT.709 (ciano sutil) + BT.2020 (âmbar destaque)
+    drawCieGamutTriangle(ctx, 'bt709',  mx, my, pw, ph);
+    drawCieGamutTriangle(ctx, 'bt2020', mx, my, pw, ph);
     // Pontos do sinal
     if (pts && pts.length >= 2) {
       ctx.fillStyle = 'rgba(255,200,80,.55)';
@@ -366,11 +368,10 @@
           ctx.fillRect(Math.round(px), Math.round(py), 1, 1);
       }
     }
-    // Label
+    // Label fixo
     font(ctx, 9); ctx.fillStyle = 'rgba(73,182,193,.8)';
     ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-    const stdLabel = state.cieStd === 'bt2020' ? 'BT.2020' : 'BT.709';
-    ctx.fillText('CIE 1931 xy \u00b7 ' + stdLabel, w - 4, 4);
+    ctx.fillText('CIE 1931 xy \u00b7 BT.709 + BT.2020', w - 4, 4);
   }
 
   // ── DIAMOND / TWIN PEAKS ───────────────────────────────────────────────────
@@ -570,6 +571,13 @@
     if (el.metaChans)  el.metaChans.textContent  = 'Est\u00e9reo';
   }
 
+  // ── Ativa/desativa badges HDR ──────────────────────────────────────────────
+  function applyHdrBadges(isHdr) {
+    state.isHdr = isHdr;
+    if (el.hdrWarningCie) el.hdrWarningCie.classList.toggle('visible', isHdr);
+    if (el.hdrWarningVs)  el.hdrWarningVs.classList.toggle('visible',  isHdr);
+  }
+
   // ── Metadados HLS ──────────────────────────────────────────────────────────
   function updateHlsMetadata() {
     if (!state.hls) return;
@@ -581,9 +589,28 @@
       if (el.metaFpsStream) el.metaFpsStream.textContent = fr;
       const vc = maxLvl.attrs?.['CODECS'] ? maxLvl.attrs['CODECS'].split(',')[0] : 'H.264 (HLS)';
       if (el.metaVcodec)    el.metaVcodec.textContent    = vc;
+
+      // VIDEO-RANGE e Color space
       const vr = maxLvl.attrs?.['VIDEO-RANGE'] || 'SDR';
-      if (el.metaVR)        el.metaVR.textContent        = vr;
-      if (el.metaGamma)     el.metaGamma.textContent     = vr;
+      if (el.metaVR)    el.metaVR.textContent    = vr;
+      if (el.metaGamma) el.metaGamma.textContent = vr;
+
+      // Color primaries: usa COLOR-PRIMARIES do manifesto se existir,
+      // senão infere pelo VIDEO-RANGE
+      const cpRaw = maxLvl.attrs?.['COLOR-PRIMARIES'] || '';
+      let colorPrimaries;
+      if (cpRaw) {
+        colorPrimaries = cpRaw;
+      } else if (vr === 'HLG' || vr === 'PQ') {
+        colorPrimaries = 'BT.2020 (inferido)';
+      } else {
+        colorPrimaries = 'BT.709';
+      }
+      if (el.metaColorPrimaries) el.metaColorPrimaries.textContent = colorPrimaries;
+
+      // Ativa badge de aviso se HDR
+      const isHdr = vr === 'HLG' || vr === 'PQ';
+      applyHdrBadges(isHdr);
     }
     if (lvl?.bitrate && el.metaBitrate) el.metaBitrate.textContent = (lvl.bitrate/1000).toFixed(0) + ' kbps';
     const nLevels = state.hls.levels.length;
@@ -607,14 +634,16 @@
     if (el.metaAR)  el.metaAR.textContent  = `${w/g}:${h/g}`;
     if (!state.hls) {
       const isBlobTs = v.currentSrc.startsWith('blob:');
-      if (el.metaVcodec)    el.metaVcodec.textContent    = isBlobTs ? 'MPEG-TS (local)' : 'H.264/AVC';
-      if (el.metaGamma)     el.metaGamma.textContent     = '\u2014';
-      if (el.metaVR)        el.metaVR.textContent        = 'SDR (estimado)';
-      if (el.metaResMax)    el.metaResMax.textContent    = `${w}\u00d7${h}`;
-      if (el.metaHlsVer)    el.metaHlsVer.textContent    = 'N/A';
-      if (el.metaHlsLevels) el.metaHlsLevels.textContent = 'N/A';
-      if (el.metaHlsSeg)    el.metaHlsSeg.textContent    = 'N/A';
-      if (el.metaHlsLatency)el.metaHlsLatency.textContent= 'N/A';
+      if (el.metaVcodec)         el.metaVcodec.textContent         = isBlobTs ? 'MPEG-TS (local)' : 'H.264/AVC';
+      if (el.metaGamma)          el.metaGamma.textContent          = '\u2014';
+      if (el.metaVR)             el.metaVR.textContent             = 'SDR (estimado)';
+      if (el.metaColorPrimaries) el.metaColorPrimaries.textContent = 'BT.709 (estimado)';
+      if (el.metaResMax)         el.metaResMax.textContent         = `${w}\u00d7${h}`;
+      if (el.metaHlsVer)         el.metaHlsVer.textContent         = 'N/A';
+      if (el.metaHlsLevels)      el.metaHlsLevels.textContent      = 'N/A';
+      if (el.metaHlsSeg)         el.metaHlsSeg.textContent         = 'N/A';
+      if (el.metaHlsLatency)     el.metaHlsLatency.textContent     = 'N/A';
+      applyHdrBadges(false);
     } else {
       updateHlsMetadata();
     }
@@ -799,14 +828,6 @@
       btn.addEventListener('click', () => {
         el.histRangeGroup.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active'); state.histRange = btn.dataset.histrange;
-      });
-    });
-    // CIE gamut standard
-    el.cieStdGroup && el.cieStdGroup.querySelectorAll('.scope-btn[data-ciestd]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        el.cieStdGroup.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active'); state.cieStd = btn.dataset.ciestd;
-        if (state.modules.cie) drawCieOn(state.ciePoints, el.cieCanvas);
       });
     });
   }
