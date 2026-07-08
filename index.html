@@ -153,7 +153,7 @@
 <body>
 <div class="app">
 
-  <!-- ══ SIDEBAR ══════════════════════════════════════════════════ -->
+  <!-- ══ SIDEBAR ════════════════════════════════════════════════ -->
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-inner">
@@ -225,7 +225,7 @@
     </section>
   </aside>
 
-  <!-- ══ MAIN ════════════════════════════════════════════════════ -->
+  <!-- ══ MAIN ════════════════════════════════════════════════ -->
   <main class="main" id="mainArea">
 
     <!-- Topbar mínima -->
@@ -299,9 +299,15 @@
           <div class="scope-canvas-wrap"><canvas id="waveformCanvas"></canvas></div>
         </article>
 
-        <!-- CIE Chromaticity -->
+        <!-- CIE Chromaticity com toggle BT.709 / BT.2020 -->
         <article class="scope-card" id="card-cie">
-          <div class="scope-header"><h3>CIE Chromaticity</h3></div>
+          <div class="scope-header">
+            <h3>CIE Chromaticity</h3>
+            <div class="scope-btn-group" id="cieStdGroup">
+              <button class="scope-btn active" data-ciestd="bt709">BT.709</button>
+              <button class="scope-btn" data-ciestd="bt2020">BT.2020</button>
+            </div>
+          </div>
           <div class="scope-canvas-wrap"><canvas id="cieCanvas"></canvas></div>
         </article>
 
