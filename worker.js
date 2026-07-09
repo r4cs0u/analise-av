@@ -1,10 +1,10 @@
-// ── Web Worker v2.1 ──
+// ── Web Worker v2.2 ──
 self.onmessage = function(e) {
   const { buf, fw, fh, step, vsStd, wfMode } = e.data;
   const data = new Uint8ClampedArray(buf);
   const total = Math.ceil(fh / step) * Math.ceil(fw / step);
 
-  // ── WAVEFORM ──────────────────────────────────────────────────────────
+  // ── WAVEFORM ───────────────────────────────────────────────────────────────
   let wfPoints, wi = 0;
   if (wfMode === 'rgb') {
     wfPoints = new Float32Array(total * 6);
@@ -66,7 +66,7 @@ self.onmessage = function(e) {
     }
   }
 
-  // ── HISTOGRAMA ────────────────────────────────────────────────────────
+  // ── HISTOGRAMA ──────────────────────────────────────────────────────────
   const histR = new Uint32Array(256);
   const histG = new Uint32Array(256);
   const histB = new Uint32Array(256);
@@ -77,9 +77,7 @@ self.onmessage = function(e) {
     }
   }
 
-  // ── CIE 1931 xy ─────────────────────────────────────────────────────────
-  // Converte sRGB linear -> XYZ D65 -> xy cromaticidade
-  // Matriz sRGB->XYZ D65 (IEC 61966-2-1)
+  // ── CIE 1931 xy ──────────────────────────────────────────────────────────
   const ciestep = step * 3;
   const cietotal = Math.ceil(fh / ciestep) * Math.ceil(fw / ciestep);
   const ciePoints = new Float32Array(cietotal * 2);
@@ -87,42 +85,41 @@ self.onmessage = function(e) {
   for (let py = 0; py < fh; py += ciestep) {
     for (let px = 0; px < fw; px += ciestep) {
       const idx = (py * fw + px) * 4;
-      // lineariza (desgama sRGB aproximado)
       let rl = data[idx]   / 255;
       let gl = data[idx+1] / 255;
       let bl = data[idx+2] / 255;
       rl = rl <= 0.04045 ? rl / 12.92 : Math.pow((rl + 0.055) / 1.055, 2.4);
       gl = gl <= 0.04045 ? gl / 12.92 : Math.pow((gl + 0.055) / 1.055, 2.4);
       bl = bl <= 0.04045 ? bl / 12.92 : Math.pow((bl + 0.055) / 1.055, 2.4);
-      // sRGB -> XYZ D65
       const X = 0.4124564*rl + 0.3575761*gl + 0.1804375*bl;
       const Y = 0.2126729*rl + 0.7151522*gl + 0.0721750*bl;
       const Z = 0.0193339*rl + 0.1191920*gl + 0.9503041*bl;
       const denom = X + Y + Z;
-      if (denom < 1e-6) continue; // pixel preto, pula
-      ciePoints[ci++] = X / denom; // x
-      ciePoints[ci++] = Y / denom; // y
+      if (denom < 1e-6) continue;
+      ciePoints[ci++] = X / denom;
+      ciePoints[ci++] = Y / denom;
     }
   }
 
-  // ── DIAMOND (Twin Peaks) ──────────────────────────────────────────────
-  // Eixo X: (Cr - Cb) normalizado -> posição horizontal no diamante
-  // Eixo Y: luma normalizado -> posição vertical
+  // ── DIAMOND (Twin Peaks) ────────────────────────────────────────────────
+  // Envia stride 3: [Cb, Cr, Y] por ponto
+  // Cb = B-Y normalizado -1..1
+  // Cr = R-Y normalizado -1..1
+  // Y  = luma normalizado  0..1
   const dstep = step * 2;
   const dtotal = Math.ceil(fh / dstep) * Math.ceil(fw / dstep);
-  const diamondPoints = new Float32Array(dtotal * 2);
+  const diamondPoints = new Float32Array(dtotal * 3);
   let di = 0;
   for (let py = 0; py < fh; py += dstep) {
     for (let px = 0; px < fw; px += dstep) {
       const idx = (py * fw + px) * 4;
       const r = data[idx], g = data[idx+1], b = data[idx+2];
-      const Y  = (0.2126*r + 0.7152*g + 0.0722*b) / 255; // 0..1
-      // BT.709 Cb e Cr normalizados -1..1
-      const Cb = (-0.1873*r - 0.3127*g + 0.5*b)   / 128; // -1..1
-      const Cr = ( 0.5*r   - 0.4187*g - 0.0813*b) / 128; // -1..1
-      // Rotação 45°: eixo X = (Cr - Cb) / sqrt(2), eixo Y = luma*2 - 1
-      diamondPoints[di++] = (Cr - Cb) / 1.4142;
-      diamondPoints[di++] = Y * 2 - 1; // centraliza em 0
+      const Y  = (0.2126*r + 0.7152*g + 0.0722*b) / 255;       // 0..1
+      const Cb = (-0.1873*r - 0.3127*g + 0.5*b)   / 128;       // -1..1
+      const Cr = ( 0.5*r   - 0.4187*g - 0.0813*b) / 128;       // -1..1
+      diamondPoints[di++] = Cb;
+      diamondPoints[di++] = Cr;
+      diamondPoints[di++] = Y;
     }
   }
 
