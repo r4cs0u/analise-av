@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = '3.2.0';
+  const VERSION = '3.3.0';
   console.log(
     `%c Monitor A/V %c v${VERSION} `,
     'background:#49b6c1;color:#101214;font-weight:900;padding:2px 0;border-radius:3px 0 0 3px',
@@ -173,15 +173,16 @@
     fillBg(ctx, w, h); drawWaveformGrid(ctx, w, h);
     if (!pts || pts.length < 2) return;
     const mode = state.wfModeResult || 'luma';
-    if (mode === 'rgb')    drawWaveformRGB(ctx, pts, w, h);
+    if (mode === 'rgb')         drawWaveformRGB(ctx, pts, w, h);
     else if (mode === 'ycbcr') drawWaveformYCbCr(ctx, pts, w, h);
-    else                   drawWaveformLuma(ctx, pts, w, h);
+    else                        drawWaveformLuma(ctx, pts, w, h);
     font(ctx, 9); ctx.fillStyle = 'rgba(73,182,193,.8)';
     ctx.textAlign = 'right'; ctx.textBaseline = 'top';
     ctx.fillText({ luma:'Luma', rgb:'RGB Parade', ycbcr:'YCbCr' }[mode] || mode, w - 4, 4);
   }
 
   // ── VECTORSCOPE ────────────────────────────────────────────────────────────
+  // stride 5: [Cb, Cr, R, G, B]
   const VS_COLORS = [
     { label:'R',  r:255, g:0,   b:0   },
     { label:'G',  r:0,   g:255, b:0   },
@@ -199,12 +200,16 @@
     const ctx = getCtx(canvas), w = cw(canvas), h = ch(canvas);
     const cx = w/2, cy = h/2, radius = Math.min(cx, cy) * .82;
     fillBg(ctx, w, h);
+
+    // Círculos de grade
     [.25, .5, .75, 1].forEach((pct, i) => {
       ctx.strokeStyle = i === 3 ? GC2 : GC; ctx.lineWidth = i === 3 ? 1 : .7;
       ctx.beginPath(); ctx.arc(cx, cy, radius * pct, 0, Math.PI*2); ctx.stroke();
       font(ctx, 9); ctx.fillStyle = LC; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(Math.round(pct * 100) + '%', cx + radius * pct + 8, cy - 5);
     });
+
+    // Eixos
     ctx.strokeStyle = GC2; ctx.lineWidth = .7;
     ctx.beginPath();
     ctx.moveTo(cx, cy - radius*1.06); ctx.lineTo(cx, cy + radius*1.06);
@@ -215,6 +220,8 @@
     ctx.textAlign = 'right';  ctx.textBaseline = 'bottom'; ctx.fillText('Cr\u2191', cx - 4, cy - radius - 2);
     font(ctx, 9); ctx.fillStyle = 'rgba(73,182,193,.8)';
     ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(state.vsStd.toUpperCase(), 4, 4);
+
+    // Alvos de cor
     VS_COLORS.forEach(({ label, r, g, b }) => {
       const { cb, cr } = rgbToVS(r, g, b, state.vsStd);
       const tx = cx + (cb/128)*radius, ty = cy - (cr/128)*radius;
@@ -223,15 +230,21 @@
       font(ctx, 9); ctx.fillStyle = LC; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       ctx.fillText(label, tx, ty - 6);
     });
-    if (!pts || pts.length < 2) return;
-    ctx.fillStyle = 'rgba(73,182,193,.22)';
-    for (let i = 0; i < pts.length; i += 2) {
-      const x = Math.round(cx + pts[i]*radius), y = Math.round(cy - pts[i+1]*radius);
-      if (x >= 0 && x < w && y >= 0 && y < h) ctx.fillRect(x, y, 1, 1);
+
+    if (!pts || pts.length < 5) return;
+
+    // Pontos coloridos pelo pixel real — stride 5: [Cb, Cr, R, G, B]
+    for (let i = 0; i < pts.length; i += 5) {
+      const x = Math.round(cx + pts[i]   * radius);
+      const y = Math.round(cy - pts[i+1] * radius);
+      if (x < 0 || x >= w || y < 0 || y >= h) continue;
+      const r = pts[i+2], g = pts[i+3], b = pts[i+4];
+      ctx.fillStyle = `rgba(${r},${g},${b},.55)`;
+      ctx.fillRect(x, y, 1, 1);
     }
   }
 
-  // ── HISTOGRAMA ─────────────────────────────────────────────────────────────
+  // ── HISTOGRAMA ────────────────────────────────────────────────────────────
   function drawHistogramOn(histR, histG, histB, canvas) {
     if (!canvas || !histR) return;
     const ctx = getCtx(canvas), w = cw(canvas), h = ch(canvas);
@@ -278,6 +291,7 @@
   }
 
   // ── CIE CHROMATICITY ───────────────────────────────────────────────────────
+  // stride 5: [x, y, R, G, B]
   const CIE_LOCUS = [
     [.1741,.0050],[.1740,.0050],[.1738,.0049],[.1736,.0049],[.1733,.0048],
     [.1730,.0048],[.1726,.0048],[.1721,.0048],[.1714,.0051],[.1703,.0058],
@@ -307,7 +321,7 @@
     const [wx, wy] = cieXyToPx(g.w[0], g.w[1], mx, my, pw, ph);
     const isBt2020 = std === 'bt2020';
     const triColor  = isBt2020 ? 'rgba(255,180,84,.85)' : 'rgba(73,182,193,.85)';
-    const fillColor = isBt2020 ? 'rgba(255,180,84,.06)' : 'rgba(73,182,193,.06)';
+    const fillColor = isBt2020 ? 'rgba(255,180,84,.04)' : 'rgba(73,182,193,.04)';
     ctx.beginPath();
     ctx.moveTo(rx, ry); ctx.lineTo(gx, gy); ctx.lineTo(bx, by); ctx.closePath();
     ctx.strokeStyle = triColor; ctx.lineWidth = isBt2020 ? 1.4 : 1; ctx.stroke();
@@ -330,12 +344,11 @@
   function drawCieOn(pts, canvas) {
     if (!canvas) return;
     const ctx = getCtx(canvas), w = cw(canvas), h = ch(canvas);
-    fillBg(ctx, w, h);
+    // Fundo preto puro
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
     const mx = 24, my = 20, pw = w - mx*2, ph = h - my*2;
-    const grd = ctx.createLinearGradient(mx, my, mx+pw, my+ph);
-    grd.addColorStop(0, 'rgba(0,0,200,.18)'); grd.addColorStop(.3, 'rgba(0,200,0,.18)');
-    grd.addColorStop(.6, 'rgba(200,200,0,.18)'); grd.addColorStop(1, 'rgba(200,0,0,.18)');
-    ctx.fillStyle = grd; ctx.fillRect(mx, my, pw, ph);
+
+    // Grade
     font(ctx, 9);
     [0, .2, .4, .6, .8].forEach(v => {
       const x = mx + v*pw, y = my + v*ph;
@@ -349,103 +362,95 @@
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';    ctx.fillText('x', mx+pw/2, my+ph+12);
     ctx.save(); ctx.translate(mx-16, my+ph/2); ctx.rotate(-Math.PI/2);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('y', 0, 0); ctx.restore();
+
+    // Locus espectral
     ctx.beginPath();
     CIE_LOCUS.forEach(([lx, ly], i) => {
       const px = mx + lx*pw/.8, py = my + (1 - ly/.9)*ph;
       i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
     });
-    ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // Triângulos de gamut
     drawCieGamutTriangle(ctx, 'bt709',  mx, my, pw, ph);
     drawCieGamutTriangle(ctx, 'bt2020', mx, my, pw, ph);
-    if (pts && pts.length >= 2) {
-      ctx.fillStyle = 'rgba(255,200,80,.55)';
-      for (let i = 0; i < pts.length; i += 2) {
-        const px = mx + pts[i]*pw/.8, py = my + (1 - pts[i+1]/.9)*ph;
-        if (px >= mx && px <= mx+pw && py >= my && py <= my+ph)
-          ctx.fillRect(Math.round(px), Math.round(py), 1, 1);
+
+    // Pontos coloridos pelo pixel real — stride 5: [x, y, R, G, B]
+    if (pts && pts.length >= 5) {
+      for (let i = 0; i < pts.length; i += 5) {
+        const px = Math.round(mx + pts[i]   * pw / .8);
+        const py = Math.round(my + (1 - pts[i+1] / .9) * ph);
+        if (px < mx || px > mx+pw || py < my || py > my+ph) continue;
+        const r = pts[i+2], g = pts[i+3], b = pts[i+4];
+        ctx.fillStyle = `rgba(${r},${g},${b},.7)`;
+        ctx.fillRect(px, py, 1, 1);
       }
     }
+
     font(ctx, 9); ctx.fillStyle = 'rgba(73,182,193,.8)';
     ctx.textAlign = 'right'; ctx.textBaseline = 'top';
     ctx.fillText('CIE 1931 xy \u00b7 BT.709 + BT.2020', w - 4, 4);
   }
 
-  // ── DIAMOND / TWIN PEAKS ───────────────────────────────────────────────────
-  // worker envia stride 3: [Cb, Cr, Y] por ponto
-  // Painel esquerdo: eixo X = Cb (B-Y), eixo Y = luma  → espelhado (Cb negativo à esquerda)
-  // Painel direito:  eixo X = Cr (R-Y), eixo Y = luma
-  // Cada painel ocupa metade do canvas. O losango é inscrito na sub-área com margem.
-  function drawDiamondPanel(ctx, label, ox, oy, pw, ph, pts, colorAxis, stride, offset) {
-    // ox,oy = origem do painel; pw,ph = largura/altura do painel
-    const cx = ox + pw / 2;
-    const cy = oy + ph / 2;
-    // Raio do losango inscrito: limitado pelo menor semi-lado com margem
+  // ── DIAMOND / TWIN PEAKS ──────────────────────────────────────────────────
+  // worker envia stride 6: [Cb, Cr, Y, R, G, B]
+  function drawDiamondPanel(ctx, label, ox, oy, pw, ph, pts, stride, cbOffset, crOffset) {
+    const cx = ox + pw / 2, cy = oy + ph / 2;
     const sc = Math.min(pw, ph) / 2 * 0.84;
 
-    // Contorno do losango
+    // Losango
     ctx.beginPath();
-    ctx.moveTo(cx,      cy - sc); // topo
-    ctx.lineTo(cx + sc, cy);      // direita
-    ctx.lineTo(cx,      cy + sc); // base
-    ctx.lineTo(cx - sc, cy);      // esquerda
+    ctx.moveTo(cx, cy - sc); ctx.lineTo(cx + sc, cy);
+    ctx.lineTo(cx, cy + sc); ctx.lineTo(cx - sc, cy);
     ctx.closePath();
     ctx.strokeStyle = GC2; ctx.lineWidth = 1; ctx.stroke();
-    ctx.fillStyle = 'rgba(73,182,193,.03)'; ctx.fill();
+    ctx.fillStyle = 'rgba(73,182,193,.02)'; ctx.fill();
 
-    // Grade interna: eixos centrais
+    // Eixos centrais
     ctx.strokeStyle = GC; ctx.lineWidth = .6;
     ctx.beginPath();
-    ctx.moveTo(cx, cy - sc); ctx.lineTo(cx, cy + sc); // vertical
-    ctx.moveTo(cx - sc, cy); ctx.lineTo(cx + sc, cy); // horizontal
+    ctx.moveTo(cx, cy - sc); ctx.lineTo(cx, cy + sc);
+    ctx.moveTo(cx - sc, cy); ctx.lineTo(cx + sc, cy);
     ctx.stroke();
 
-    // Anéis de 50% e 75%
+    // Anéis 50% e 75%
     [0.5, 0.75].forEach(f => {
       const sf = sc * f;
       ctx.beginPath();
-      ctx.moveTo(cx,      cy - sf);
-      ctx.lineTo(cx + sf, cy);
-      ctx.lineTo(cx,      cy + sf);
-      ctx.lineTo(cx - sf, cy);
+      ctx.moveTo(cx, cy-sf); ctx.lineTo(cx+sf, cy);
+      ctx.lineTo(cx, cy+sf); ctx.lineTo(cx-sf, cy);
       ctx.closePath();
       ctx.strokeStyle = GC; ctx.lineWidth = .4; ctx.stroke();
     });
 
-    // Labels dos eixos
+    // Labels
     font(ctx, 9); ctx.fillStyle = LC;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom'; ctx.fillText('+Y', cx, oy + 2);
     ctx.textBaseline = 'top';    ctx.fillText('\u2212Y', cx, oy + ph - 2);
+    const axisLabel = label === 'Cb' ? 'B\u2212Y' : 'R\u2212Y';
+    const axisColor = label === 'Cb' ? 'rgba(80,140,255,.9)' : 'rgba(255,80,100,.9)';
     ctx.textAlign = 'right';  ctx.textBaseline = 'middle'; ctx.fillText('\u2212' + label, cx - sc - 3, cy);
-    ctx.textAlign = 'left';   ctx.textBaseline = 'middle'; ctx.fillText('+' + label, cx + sc + 3, cy);
+    ctx.textAlign = 'left';   ctx.fillText('+' + label, cx + sc + 3, cy);
+    font(ctx, 9); ctx.fillStyle = axisColor;
+    ctx.textAlign = label === 'Cb' ? 'left' : 'right'; ctx.textBaseline = 'top';
+    ctx.fillText(axisLabel, label === 'Cb' ? ox + 3 : ox + pw - 3, oy + 3);
 
-    // Rótulo do painel
-    font(ctx, 9); ctx.fillStyle = colorAxis;
-    ctx.textAlign = label === 'Cb' ? 'left' : 'right';
-    ctx.textBaseline = 'top';
-    ctx.fillText(label === 'Cb' ? 'B\u2212Y' : 'R\u2212Y',
-      label === 'Cb' ? ox + 3 : ox + pw - 3, oy + 3);
+    if (!pts || pts.length < stride) return;
 
-    if (!pts || pts.length < 3) return;
-
-    // Pontos do sinal
-    // stride=3, offset: 0=Cb, 1=Cr
-    // eixo X do canvas: cx + C * sc  (Cb positivo = B>Y = azul → direita)
-    // eixo Y do canvas: cy - Y * sc  (Y=1 no topo)
-    // Y já está em 0..1 no worker, remapeamos para -1..1 centrado: (Y*2-1)
-    ctx.fillStyle = colorAxis.replace(')', ',.28)');
-    for (let i = 0; i < pts.length; i += 3) {
-      const C = pts[i + offset]; // Cb ou Cr, -1..1
-      const Y = pts[i + 2];      // 0..1
-      const Yn = Y * 2 - 1;      // -1..1 centrado
-      // Mapeamento Diamond: ponto no espaço (C, Y) → canvas rotacionado 45°
-      // px = cx + (C + Yn) / 2 * sc
-      // py = cy - (Yn - C) / 2 * sc
+    // Pontos coloridos pelo pixel real
+    // stride 6: [Cb, Cr, Y, R, G, B] — cbOffset=0, crOffset=1
+    for (let i = 0; i < pts.length; i += stride) {
+      const C  = pts[i + cbOffset]; // -1..1
+      const Y  = pts[i + 2];        // 0..1
+      const Yn = Y * 2 - 1;         // -1..1
+      const r  = pts[i + 3], g = pts[i + 4], b = pts[i + 5];
       const px = Math.round(cx + (C + Yn) * 0.5 * sc);
       const py = Math.round(cy - (Yn - C) * 0.5 * sc);
-      if (px >= ox && px < ox + pw && py >= oy && py < oy + ph)
+      if (px >= ox && px < ox + pw && py >= oy && py < oy + ph) {
+        ctx.fillStyle = `rgba(${r},${g},${b},.45)`;
         ctx.fillRect(px, py, 1, 1);
+      }
     }
   }
 
@@ -454,16 +459,13 @@
     const ctx = getCtx(canvas), w = cw(canvas), h = ch(canvas);
     fillBg(ctx, w, h);
 
-    // Linha divisora central
     ctx.strokeStyle = 'rgba(153,163,173,.1)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(w/2, 0); ctx.lineTo(w/2, h); ctx.stroke();
 
-    // Painel esquerdo: B-Y (Cb), offset=0
-    drawDiamondPanel(ctx, 'Cb', 0,   0, w/2, h, pts, 'rgba(80,140,255', 3, 0);
-    // Painel direito:  R-Y (Cr), offset=1
-    drawDiamondPanel(ctx, 'Cr', w/2, 0, w/2, h, pts, 'rgba(255,80,100', 3, 1);
+    // stride=6, Cb=offset 0, Cr=offset 1
+    drawDiamondPanel(ctx, 'Cb', 0,   0, w/2, h, pts, 6, 0, 1);
+    drawDiamondPanel(ctx, 'Cr', w/2, 0, w/2, h, pts, 6, 1, 0);
 
-    // Label geral
     font(ctx, 9); ctx.fillStyle = 'rgba(73,182,193,.8)';
     ctx.textAlign = 'right'; ctx.textBaseline = 'top';
     ctx.fillText('Diamond \u00b7 Twin Peaks', w - 4, 4);
